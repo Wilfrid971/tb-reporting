@@ -1,0 +1,37 @@
+# Dépendances
+node_modules/
+
+# Secrets
+.env
+.env.local
+**/users.json
+**/connections.json
+
+# Runtime / logs
+logs/
+*.log
+
+# Artefacts générés
+install/tb-reporting-deploy.zip
+
+# Données client / captures
+DAMEBESSON/
+*.xls
+*.xlsx
+*.jpg
+*.jpeg
+*.png
+*.pdf
+
+# Debug / temporaires
+*-debug.json
+reglement-debug.json
+Message a transmettre.txt
+erreur envoi rapport.txt
+synthaxe lancement.txt
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,17 @@
+{
+  "rapport_ca": "CDITEST - STATISTIQUES DES VENTES",
+  "rapport_commerciaux": "CDITEST - STATISTIQUES DES VENTES PAR COMMERCIAUX",
+  "sections": {
+    "rapport_ca": {
+      "today": "Aujourd'hui",
+      "month": "Mois en cours",
+      "year": "Année en cours",
+      "evolution": "Analyse graphique par mois"
+    },
+    "rapport_commerciaux": {
+      "month": "Mois en cours",
+      "year": "Année en cours",
+      "distribution": "Répartition CA"
+    }
+  }
+}

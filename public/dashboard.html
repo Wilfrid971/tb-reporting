@@ -1,0 +1,2628 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tableaux de bord — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require('dashboard'); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
+      --text:#e2e8f0; --muted:#8892a4; --blue:#2196F3; --green:#4CAF50;
+      --orange:#FF9800; --red:#F44336; --purple:#9C27B0; --radius:10px; --gap:14px;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
+      display:flex;align-items:center;gap:10px;flex-shrink:0}
+    header h1{font-size:1rem;font-weight:600;white-space:nowrap}
+    .nav-link{color:var(--muted);font-size:.78rem;text-decoration:none;padding:4px 10px;
+      border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+    .nav-link:hover{color:var(--text);border-color:var(--blue)}
+
+    .layout{display:flex;flex:1;overflow:hidden}
+
+    /* ── Sidebar ── */
+    .sidebar{width:250px;min-width:200px;border-right:1px solid var(--border);
+      display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+    .sb-list{flex:1;overflow-y:auto;padding:8px}
+    .sb-section{font-size:.68rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
+      padding:10px 10px 4px;font-weight:700}
+    .sb-divider{height:1px;background:var(--border);margin:6px 0}
+    .sb-item{padding:8px 10px;border-radius:8px;cursor:pointer;margin-bottom:3px;
+      border:1px solid transparent;display:flex;align-items:center;gap:6px}
+    .sb-item:hover{background:var(--surface2);border-color:var(--border)}
+    .sb-item.active{background:var(--surface2);border-color:var(--blue)}
+    .si-icon{font-size:.95rem;flex-shrink:0}
+    .si-body{flex:1;min-width:0}
+    .si-name{font-size:.83rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .si-meta{font-size:.69rem;color:var(--muted);margin-top:1px}
+    .fav-btn{background:none;border:none;cursor:pointer;font-size:.9rem;padding:2px 4px;
+      color:var(--muted);border-radius:4px;flex-shrink:0;line-height:1}
+    .fav-btn:hover{background:var(--surface)}
+    .fav-btn.on{color:#f59e0b}
+    .sb-add{display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:8px;
+      cursor:pointer;font-size:.78rem;color:var(--muted);border:1px dashed var(--border);margin-top:4px}
+    .sb-add:hover{color:var(--text);border-color:var(--blue)}
+
+    /* ── Main ── */
+    .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+    /* ── Filters bar ── */
+    .filters-bar{background:var(--surface);border-bottom:1px solid var(--border);
+      padding:10px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-shrink:0}
+    .filters-bar select{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 9px;font-size:.78rem;cursor:pointer}
+    .filters-bar label{font-size:.72rem;color:var(--muted)}
+    .filters-bar .sep{width:1px;height:20px;background:var(--border)}
+    #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;
+      border-radius:6px;font-size:.8rem;cursor:pointer;margin-left:auto}
+    #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
+    #email-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);
+      padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer;margin-left:6px;display:none}
+    #email-btn:hover{border-color:var(--blue)}
+    #email-btn.scheduled{border-color:var(--green);color:var(--green)}
+    #excel-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);
+      padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer;margin-left:6px}
+    #excel-btn:hover{border-color:var(--green);color:var(--green)}
+    #excel-btn:disabled{opacity:.5;cursor:not-allowed}
+
+    /* ── Multi-select ── */
+    .ms-wrap{position:relative;display:inline-flex}
+    .ms-btn{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 9px;font-size:.78rem;cursor:pointer;white-space:nowrap;
+      min-width:120px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:6px}
+    .ms-btn:hover{border-color:var(--blue)}
+    .ms-btn.open{border-color:var(--blue)}
+    .ms-btn::after{content:'▾';font-size:.65rem;color:var(--muted);flex-shrink:0}
+    .ms-dd{position:absolute;top:calc(100% + 4px);left:0;min-width:160px;max-height:220px;overflow-y:auto;
+      background:var(--surface);border:1px solid var(--border);border-radius:8px;
+      padding:6px 0;z-index:9999;display:none;box-shadow:0 4px 16px rgba(0,0,0,.4)}
+    .ms-dd.open{display:block}
+    .ms-dd label{display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:.78rem;
+      cursor:pointer;color:var(--text)}
+    .ms-dd label:hover{background:var(--surface2)}
+    .ms-dd label.all-opt{color:var(--muted);font-style:italic;border-bottom:1px solid var(--border);margin-bottom:3px;padding-bottom:6px}
+    .ms-dd input[type=checkbox]{accent-color:var(--blue);cursor:pointer}
+    #status-dot{width:9px;height:9px;border-radius:50%;background:#666;flex-shrink:0}
+    #status-dot.ok{background:var(--green)} #status-dot.err{background:var(--red)}
+
+    /* ── Iframe ── */
+    #iframe-view{flex:1;border:none;width:100%;display:none}
+
+    /* ── Widget view ── */
+    .main-content{flex:1;overflow-y:auto;padding:var(--gap);display:none}
+    .item-title{font-size:1rem;font-weight:700;margin-bottom:4px}
+    .item-desc{font-size:.78rem;color:var(--muted);margin-bottom:var(--gap)}
+    .widget-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--gap)}
+    .widget-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+    .widget-box.w-full{grid-column:span 6}
+    .widget-box.w-half{grid-column:span 3}
+    .widget-box.w-third{grid-column:span 2}
+    .widget-head{padding:10px 14px;background:var(--surface2);border-bottom:1px solid var(--border);
+      display:flex;align-items:center;gap:8px}
+    .widget-head .wh-title{font-size:.84rem;font-weight:600;flex:1}
+    .widget-head .wh-spin{font-size:.75rem;color:var(--muted)}
+    .widget-body{padding:12px 14px;overflow-x:auto}
+    .widget-error{color:var(--red);font-size:.8rem}
+    /* ── KPI ── */
+    .kpi-grid{display:flex;flex-wrap:wrap;gap:10px}
+    .kpi-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+      padding:12px 16px;min-width:130px;flex:1}
+    .kpi-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+    .kpi-value{font-size:1.2rem;font-weight:700}
+
+    /* ── Table ── */
+    .dash-table{width:100%;border-collapse:collapse;font-size:.82rem;min-width:max-content}
+    .dash-table th{background:var(--surface2);color:var(--muted);padding:7px 10px;
+      text-align:left;border-bottom:1px solid var(--border);font-size:.72rem;
+      text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+    .dash-table th.num{text-align:right}
+    .dash-table td{padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+    .dash-table td.num{text-align:right;color:var(--blue);font-weight:600}
+    .dash-table td.evol{text-align:right;font-size:.75rem}
+    .dash-table tr:last-child td{border-bottom:none}
+    .dash-table .group-row td{background:var(--surface2);font-weight:700;color:var(--text)}
+    .dash-table .group-row.lv1 td{background:rgba(255,255,255,.04);font-weight:600}
+    .grp-arrow{display:inline-block;width:1em;transition:transform .15s;cursor:pointer;user-select:none}
+    .dash-table [data-coll="0"] .grp-arrow{transform:rotate(0deg)}
+    .dash-table .tot-row td{border-top:2px solid var(--border);background:var(--surface2);font-weight:700;color:var(--text)}
+    .dash-table .tot-row td.num{color:var(--blue)}
+    .dash-table th.tot-col,.dash-table td.tot-col{border-left:2px solid var(--border);background:rgba(255,255,255,.03)}
+    .bar-wrap{background:var(--surface2);height:8px;border-radius:3px;width:100px;display:inline-block;vertical-align:middle}
+    .bar-fill{background:var(--blue);height:8px;border-radius:3px}
+
+    /* ── Placeholder ── */
+    .placeholder{flex:1;display:flex;align-items:center;justify-content:center;
+      color:var(--muted);font-size:.88rem;flex-direction:column;gap:12px}
+    .placeholder svg{opacity:.2}
+
+    /* ── Email modal ── */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:none;align-items:center;justify-content:center}
+    .modal-overlay.open{display:flex}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+      padding:24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto}
+    .modal h2{font-size:.95rem;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+    .modal-section{border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px}
+    .modal-section-title{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+    .modal label{font-size:.78rem;color:var(--muted);display:block;margin-bottom:4px}
+    .modal input[type=text],.modal input[type=email],.modal select,.modal input[type=number]{
+      width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:7px 10px;font-size:.82rem}
+    .modal input:focus,.modal select:focus{outline:none;border-color:var(--blue)}
+    .modal-row{display:flex;gap:8px;margin-top:8px}
+    .modal-row .modal-field{flex:1}
+    .modal-actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+    .btn{border:none;border-radius:6px;padding:7px 16px;font-size:.82rem;cursor:pointer;font-weight:500}
+    .btn-primary{background:var(--blue);color:#fff}
+    .btn-primary:hover{background:#1976D2}
+    .btn-success{background:var(--green);color:#fff}
+    .btn-success:hover{background:#388e3c}
+    .btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+    .btn-ghost:hover{border-color:var(--blue)}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .modal-msg{font-size:.78rem;margin-top:8px;padding:6px 10px;border-radius:6px;display:none}
+    .modal-msg.ok{background:rgba(76,175,80,.15);color:var(--green);display:block}
+    .modal-msg.err{background:rgba(244,67,54,.15);color:var(--red);display:block}
+    .schedule-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+    .schedule-row input[type=checkbox]{accent-color:var(--blue);width:15px;height:15px;cursor:pointer;flex-shrink:0}
+    .cron-preview{font-size:.72rem;color:var(--muted);margin-top:6px;font-family:monospace}
+    /* ── Planification visuelle ── */
+    .freq-btns{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+    .freq-btn{padding:3px 11px;border-radius:12px;font-size:.74rem;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);transition:all .12s}
+    .freq-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .freq-btn:hover:not(.active){border-color:var(--blue);color:var(--text)}
+    .dow-btns{display:flex;gap:5px;margin-bottom:8px}
+    .dow-btn{width:30px;height:30px;border-radius:50%;font-size:.74rem;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);padding:0;transition:all .12s}
+    .dow-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .dow-btn:hover:not(.active){border-color:var(--blue)}
+    .dom-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:8px}
+    .dom-btn{padding:4px 0;font-size:.7rem;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--muted);border-radius:3px;text-align:center;transition:all .12s}
+    .dom-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .dom-btn:hover:not(.active){border-color:var(--blue)}
+    .sched-cron-prev{font-size:.73rem;color:var(--blue);font-family:monospace;margin:4px 0 6px;min-height:1.1em}
+    /* ── Options par-planification ── */
+    .sched-opts-toggle{display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--blue);cursor:pointer;margin:6px 0 4px;user-select:none}
+    .sched-opts-toggle:hover{color:#1976D2}
+    .sched-opts-toggle .arrow{transition:transform .15s}
+    .sched-opts-toggle.open .arrow{transform:rotate(90deg)}
+    .sched-opts{display:none;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:8px;margin-top:4px}
+    .sched-opts.open{display:block}
+    .sched-opts-row{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center}
+    .sched-opts-row > label{font-size:.74rem;color:var(--muted);min-width:80px;flex-shrink:0}
+    .sched-opts-row > input[type=text],.sched-opts-row > select{flex:1;padding:3px 7px;font-size:.78rem;min-width:140px}
+    .sched-opts-pages{display:flex;gap:10px;flex-wrap:wrap}
+    .sched-opts-pages label{display:flex;align-items:center;gap:4px;font-size:.76rem;cursor:pointer}
+    .sched-opts-dbs{display:flex;flex-direction:column;gap:3px;max-height:90px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:4px 6px}
+    .sched-opts-dbs label{display:flex;align-items:center;gap:5px;font-size:.74rem;cursor:pointer}
+
+    @media(max-width:700px){
+      .sidebar{display:none}
+      .widget-box.w-half,.widget-box.w-third{grid-column:span 6}
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📊 TB Reporting</h1>
+  <a class="nav-link" href="/tb-reporting.html">← Accueil</a>
+  <a class="nav-link" id="link-backoffice" href="/backoffice.html" style="display:none">⚙️ Backoffice</a>
+  <a class="nav-link" href="/settings.html">Paramètres</a>
+  <button id="excel-btn" onclick="exportExcel()" title="Exporter vers Excel" style="display:none">📊 Excel</button>
+  <button id="html-btn"  onclick="exportHTML()"  title="Télécharger en HTML"  style="display:none">📄 HTML</button>
+  <button id="pdf-btn"   onclick="exportPDF()"   title="Imprimer / PDF"       style="display:none">🖨️ PDF</button>
+  <span id="header-user" style="font-size:.75rem;color:var(--muted);margin-left:4px"></span>
+  <button onclick="AUTH.logout()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer;margin-left:4px">Déconnexion</button>
+</header>
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sb-list" id="sb-list"></div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <div class="placeholder" id="placeholder">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+      </svg>
+      <span>Sélectionnez un élément</span>
+    </div>
+
+    <div class="filters-bar" id="filters-bar" style="display:none">
+      <div id="filter-controls" style="display:contents"></div>
+      <span id="status-dot"></span>
+      <button id="refresh-btn" onclick="onRefresh()">↻ Actualiser</button>
+      <button id="email-btn" onclick="currentType==='builtin'?openBuiltinEmailModal():openEmailModal()" title="Envoyer par mail / Planifier">📧 Email</button>
+    </div>
+
+    <iframe id="iframe-view" title="Vue intégrée"></iframe>
+
+    <div class="main-content" id="main-content"></div>
+
+  </div>
+</div>
+
+<!-- Email / Schedule modal -->
+<div class="modal-overlay" id="email-modal" onclick="if(event.target===this)closeEmailModal()">
+  <div class="modal">
+    <h2>📧 Email &amp; Planification</h2>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Envoi immédiat</div>
+      <label>Destinataires (séparés par des virgules)</label>
+      <input type="text" id="em-recipients" placeholder="a@exemple.fr, b@exemple.fr">
+      <div class="modal-actions" style="margin-top:10px;justify-content:flex-start">
+        <button class="btn btn-primary" id="em-send-btn" onclick="sendNow()">↗ Envoyer maintenant</button>
+        <a id="em-preview-link" href="#" target="_blank" class="btn btn-ghost">👁 Aperçu HTML</a>
+      </div>
+      <div class="modal-msg" id="em-send-msg"></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-title" style="display:flex;align-items:center;justify-content:space-between">
+        Planifications automatiques
+        <button class="btn btn-ghost btn-sm" onclick="emAddSched()">+ Ajouter</button>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px">Chaque planification a son propre sujet et son format d'envoi (HTML, Excel ou PDF).</div>
+      <div id="em-sched-list" style="margin-top:8px"></div>
+      <div class="modal-actions" style="margin-top:12px;justify-content:flex-start">
+        <button class="btn btn-success" onclick="saveSchedule()">💾 Sauvegarder</button>
+      </div>
+      <div class="modal-msg" id="em-sched-msg"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeEmailModal()">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Builtin Email / Schedule modal -->
+<div class="modal-overlay" id="builtin-email-modal" onclick="if(event.target===this)closeBuiltinEmailModal()">
+  <div class="modal">
+    <h2>📧 Email — Rapports intégrés</h2>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Titre du rapport</div>
+      <input type="text" id="bem-title" placeholder="Ex : Rapport commercial mensuel" style="margin-top:6px">
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px">Utilisé comme objet de l'email</div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Pages à inclure</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+        <label class="schedule-row"><input type="checkbox" id="bem-cb-ca"> 📋 <span id="bem-lbl-ca">CA Global</span></label>
+        <label class="schedule-row"><input type="checkbox" id="bem-cb-com"> 👥 <span id="bem-lbl-com">CA par Commercial</span></label>
+        <label class="schedule-row"><input type="checkbox" id="bem-cb-reg"> 💶 <span id="bem-lbl-reg">Règlement clients</span></label>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px">Les titres sont configurables dans le backoffice (onglet Intégrés).</div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Période</div>
+      <select id="bem-periode" style="width:100%;margin-top:6px">
+        <option value="ytd">YTD — depuis le 01/01 jusqu'à aujourd'hui</option>
+        <option value="full">Année complète (jusqu'au 31/12)</option>
+      </select>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Marge & Prix de revient</div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <select id="bem-mg" style="flex:1">
+          <option value="sf">Marge SF</option>
+          <option value="af">Marge AF</option>
+        </select>
+        <select id="bem-pr" style="flex:1">
+          <option value="PLVCRUMP">CRUMP (défaut)</option>
+          <option value="PLVPRMP">PRMP</option>
+          <option value="PLVLASTPR">Dernier PR</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Format d'envoi</div>
+      <select id="bem-format" style="width:100%;margin-top:6px">
+        <option value="html">HTML — intégré dans le message</option>
+        <option value="excel">Excel — pièce jointe (.xlsx)</option>
+        <option value="pdf">PDF — pièce jointe (.pdf)</option>
+      </select>
+    </div>
+
+    <div class="modal-section" id="bem-dbs-section" style="display:none">
+      <div class="modal-section-title">Connexions (consolidation multi-bases)</div>
+      <div id="bem-dbs-list" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:120px;overflow-y:auto"></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Envoyer maintenant</div>
+      <label>Destinataires (séparés par des virgules)</label>
+      <input type="text" id="bem-recipients" placeholder="a@exemple.fr, b@exemple.fr">
+      <div class="modal-actions" style="margin-top:10px;justify-content:flex-start">
+        <button class="btn btn-primary" id="bem-send-btn" onclick="sendBuiltinNow()">↗ Envoyer maintenant</button>
+      </div>
+      <div class="modal-msg" id="bem-send-msg"></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-title" style="display:flex;align-items:center;justify-content:space-between">
+        Planifications automatiques
+        <button class="btn btn-ghost btn-sm" onclick="bemAddSched()">+ Ajouter</button>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px">Chaque planification a ses propres options (titre, pages, période, marge/PR, format, connexions). Les champs ci-dessus servent de modèle par défaut à la création d'une nouvelle planification et au bouton "Envoyer maintenant".</div>
+      <div id="bem-sched-list" style="margin-top:8px"></div>
+      <div class="modal-actions" style="margin-top:12px;justify-content:flex-start">
+        <button class="btn btn-success" onclick="saveBuiltinSchedule()">💾 Sauvegarder</button>
+      </div>
+      <div class="modal-msg" id="bem-sched-msg"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeBuiltinEmailModal()">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API    = '/api/backoffice';
+const LS_FAV = 'tb_fav_dashboard';
+
+let customDashboards = [], customReports = [], currentId = null, currentType = null;
+let commerciaux = [], exeYears = [], calYears = [], sourceMeta = [], depots = [], fournisseurs = [];
+let _currentItem = null, _currentGf = {};
+// Set des dimIds gérés par le toolbar (ex : 'cli_branche'). Ces dims sont retirées de w.params.filters
+// avant l'envoi pour laisser gf piloter le filtre (pas de double-application, et "Tous" => pas de filtre).
+let _activeDimSelectors = new Set();
+
+const DIM_FILTER_MAP = {
+  rep_nom:        { paramKey:'repid',        label:'Commercial',        source:'commercial' },
+  cli_nom:        { paramKey:'tirid',        label:'Client',            source:'fetch' },
+  cli_categorie:  { paramKey:'cli_cat',      label:'Catégorie client',  source:'fetch' },
+  cli_activite:   { paramKey:'cli_act',      label:'Activité client',   source:'fetch' },
+  cli_geo:        { paramKey:'cli_geo',      label:'Zone géo',          source:'fetch' },
+  cli_branche:    { paramKey:'cli_branche',  label:'Branche',           source:'fetch' },
+  cli_enseigne:   { paramKey:'cli_enseigne', label:'Enseigne',          source:'fetch' },
+  cli_origine:    { paramKey:'cli_origine',  label:'Origine client',    source:'fetch' },
+  cli_cible1:     { paramKey:'cli_cible1',   label:'Cible 1',           source:'fetch' },
+  cli_cible2:     { paramKey:'cli_cible2',   label:'Cible 2',           source:'fetch' },
+  art_famille:    { paramKey:'afmid',        label:'Famille article',   source:'fetch' },
+  art_sousfamille:{ paramKey:'art_sfam',     label:'Sous-famille',      source:'fetch' },
+  art_categorie:  { paramKey:'art_cat',      label:'Catégorie article', source:'fetch' },
+  art_nature:     { paramKey:'art_nat',      label:'Nature article',    source:'fetch' },
+  art_marque:     { paramKey:'art_marque',   label:'Marque',            source:'fetch' },
+  art_classe:     { paramKey:'art_classe',   label:'Classe article',    source:'fetch' },
+  art_collection: { paramKey:'art_coll',     label:'Collection',        source:'fetch' },
+  fournisseur_nom:{ paramKey:'fouid',        label:'Fournisseur',       source:'stock' },
+  fournisseur_all:{ paramKey:'fouid',        label:'Fournisseur',       source:'stock' },
+  // Dims temps : exposables comme filtres dans le viewer (paramKey distinct des contrôles globaux
+  // Période/Mois/Années pour permettre les deux modes en parallèle).
+  time_annee:     { paramKey:'time_annee',     label:'Année (filtre)',     source:'fetch' },
+  time_mois:      { paramKey:'time_mois',      label:'Mois (filtre)',      source:'fetch' },
+  time_anneemois: { paramKey:'time_anneemois', label:'Année-Mois',         source:'fetch' },
+  time_trimestre: { paramKey:'time_trimestre', label:'Trimestre',          source:'fetch' },
+};
+const TIME_DIMS = new Set(['time_annee','time_mois','time_mois_lib','time_anneemois','time_semaine','time_jour','time_date']);
+
+const chartInstances = new Map();
+function destroyChart(id) { if(chartInstances.has(id)){chartInstances.get(id).destroy();chartInstances.delete(id);} }
+
+const BUILTINS = [
+  { id: '__rapport_ca',           name: 'Rapport CA Global',       icon: '📋', url: '/rapport.html' },
+  { id: '__rapport_commerciaux',  name: 'CA par Commercial',       icon: '👥', url: '/rapport-commerciaux.html' },
+  { id: '__rapport_reglement',    name: 'Règlement clients',       icon: '💶', url: '/rapport-reglement.html' },
+  { id: '__segmentation',         name: 'Segmentation',            icon: '🔍', url: '/segmentation.html' },
+  { id: '__rapport_objectifs',    name: 'Objectifs',                icon: '🎯', url: '/rapport-objectifs.html' },
+  { id: '__rapport_prix',         name: 'Prix concurrents',        icon: '💰', url: '/rapport-prix.html' },
+  { id: '__rapport_secteur_marque', name: 'Pénétration secteur × marque', icon: '🎯', url: '/rapport-secteur-marque.html' },
+];
+const BUILTIN_FILTER_DEFS = {
+  '__rapport_ca':          [{ key: 'asof', label: 'Date du jour', source: 'date-input' }, { key: 'pr', label: 'Prix achat', source: 'pr-type' }, { key: 'mg', label: 'Marge', source: 'mg-type' }, { key: 'actif', label: 'Commerciaux', source: 'actif-rep', default: 'all' }, { key: 'repid', label: 'Commercial', source: 'commercial' }, { key: 'dbs', label: 'Connexions', source: 'connections' }],
+  '__rapport_commerciaux': [{ key: 'asof', label: 'Date du jour', source: 'date-input' }, { key: 'pr', label: 'Prix achat', source: 'pr-type' }, { key: 'mg', label: 'Marge', source: 'mg-type' }, { key: 'actif', label: 'Commerciaux', source: 'actif-rep', default: 'O' }, { key: 'dbs', label: 'Connexions', source: 'connections' }],
+  '__rapport_reglement':   [{ key: 'actif', label: 'Commerciaux', source: 'actif-rep', default: 'O' }, { key: 'repid', label: 'Commercial', source: 'commercial' }, { key: 'dbs', label: 'Connexions', source: 'connections' }],
+  '__segmentation':        [{ key: 'actif', label: 'Commerciaux', source: 'actif-rep', default: 'O' }, { key: 'repid', label: 'Commercial', source: 'commercial' }, { key: 'dbs', label: 'Connexions', source: 'connections' }],
+  // Objectifs : la configuration porte sa propre période + dim ; on n'expose que dbs (multi-base)
+  '__rapport_objectifs':   [{ key: 'dbs', label: 'Connexions', source: 'connections' }],
+  // Prix : filtres internes (période/client/marque/rep), pas d'exposition multi-base ici
+  '__rapport_prix':        [{ key: 'dbs', label: 'Connexions', source: 'connections' }],
+  // Pénétration secteur × marque : filtres internes (année/marque/commercial/cliactif), pas d'exposition externe
+  '__rapport_secteur_marque': [{ key: 'dbs', label: 'Connexions', source: 'connections' }],
+};
+let dbConnections = []; // filled on first builtin open
+let dbDefaultEntry = { id: 'default', label: 'Base en cours' }; // enrichi au 1er appel
+
+function qs(id) { return document.getElementById(id); }
+function escH(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmt(n, dec=0) {
+  if (n===null||n===undefined||isNaN(+n)) return '—';
+  return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec}).format(+n);
+}
+function fmtV(val) { const n=parseFloat(val); return isNaN(n)?'—':fmt(n)+' €'; }
+function evolHtml(last, prev) {
+  if (!prev) return '';
+  const e=(last-prev)/prev*100, c=e>=0?'var(--green)':'var(--red)';
+  return `<span style="color:${c}">${e>=0?'▲':'▼'} ${e>=0?'+':''}${fmt(e,1)} %</span>`;
+}
+// Delta inline (sous chaque cellule) — version compacte sans flèche
+function inlineDeltaHtml(curr, prev) {
+  if (!prev) return '<span style="color:var(--muted);font-size:.65rem">—</span>';
+  const e=(curr-prev)/prev*100, c=e>=0?'var(--green)':'var(--red)';
+  return `<span style="color:${c};font-size:.65rem;font-weight:600">${e>=0?'+':''}${fmt(e,1)} %</span>`;
+}
+
+// ── Favorites ─────────────────────────────────────────────────────────────────
+
+function getFav() { return localStorage.getItem(LS_FAV)||''; }
+function setFav(id) {
+  if (getFav()===id) localStorage.removeItem(LS_FAV);
+  else               localStorage.setItem(LS_FAV, id);
+  renderSidebar();
+}
+
+// ── Sidebar ────────────────────────────────────────────────────────────────────
+
+function renderSidebar() {
+  const fav = getFav();
+  let html = `<div class="sb-section">Pages intégrées</div>`;
+  BUILTINS.forEach(b => {
+    html += `<div class="sb-item${currentId===b.id?' active':''}" onclick="openItem('${b.id}','builtin')">
+      <span class="si-icon">${b.icon}</span>
+      <div class="si-body"><div class="si-name">${escH(b.name)}</div></div>
+      <button class="fav-btn${fav===b.id?' on':''}" onclick="event.stopPropagation();setFav('${b.id}')" title="Favori">${fav===b.id?'★':'☆'}</button>
+    </div>`;
+  });
+
+  html += `<div class="sb-divider"></div><div class="sb-section">Tableaux de bord</div>`;
+  if (customDashboards.length) {
+    customDashboards.forEach(d => {
+      html += `<div class="sb-item${currentId===d.id?' active':''}" onclick="openItem('${d.id}','dashboard')">
+        <span class="si-icon">📊</span>
+        <div class="si-body">
+          <div class="si-name">${escH(d.name)}</div>
+          <div class="si-meta">${d.widgets?.length||0} widget(s)</div>
+        </div>
+        <button class="fav-btn${fav===d.id?' on':''}" onclick="event.stopPropagation();setFav('${d.id}')" title="Favori">${fav===d.id?'★':'☆'}</button>
+      </div>`;
+    });
+  } else {
+    html += `<div style="font-size:.75rem;color:var(--muted);padding:6px 10px">Aucun tableau créé</div>`;
+  }
+  html += `<a class="sb-add" href="/backoffice.html#dashboards">＋ Créer un tableau de bord</a>`;
+
+  html += `<div class="sb-divider"></div><div class="sb-section">Rapports</div>`;
+  if (customReports.length) {
+    customReports.forEach(r => {
+      const hasSchedule = (r.schedules||[]).some(s=>s.enabled) || (!r.schedules && r.schedule?.enabled);
+      html += `<div class="sb-item${currentId===r.id?' active':''}" onclick="openItem('${r.id}','report')">
+        <span class="si-icon">📄</span>
+        <div class="si-body">
+          <div class="si-name">${escH(r.name)}</div>
+          <div class="si-meta">${r.widgets?.length||0} widget(s)${hasSchedule?' · ⏰ planifié':''}</div>
+        </div>
+        <button class="fav-btn${fav===r.id?' on':''}" onclick="event.stopPropagation();setFav('${r.id}')" title="Favori">${fav===r.id?'★':'☆'}</button>
+      </div>`;
+    });
+  } else {
+    html += `<div style="font-size:.75rem;color:var(--muted);padding:6px 10px">Aucun rapport créé</div>`;
+  }
+  html += `<a class="sb-add" href="/backoffice.html#reports">＋ Créer un rapport</a>`;
+
+  qs('sb-list').innerHTML = html;
+}
+
+// ── Open ───────────────────────────────────────────────────────────────────────
+
+function getExportParams() {
+  // Mirror loadWidgets() — récupère TOUTES les valeurs de la toolbar (selects bf-* + multi-selects)
+  // pour que l'export applique les mêmes filtres que l'affichage live.
+  const gf = buildGfFromPeriode() || {};
+  qs('filter-controls')?.querySelectorAll('select[id^="bf-"]').forEach(sel => {
+    const key = sel.id.slice(3);
+    if (key !== 'periode' && key !== 'mois' && sel.value) gf[key] = sel.value;
+  });
+  qs('filter-controls')?.querySelectorAll('.ms-wrap').forEach(wrap => {
+    const key = wrap.dataset.key;
+    const checked = [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c=>c.checked).map(c=>c.value);
+    if (checked.length > 0) gf[key] = checked.join(',');
+  });
+  // Conserver mois et repid s'ils existent côté toolbar (cas où ce ne sont pas des selects bf-*)
+  const repSel   = qs('bf-repid');
+  const moisSel  = qs('bf-mois');
+  const depotSel = qs('bf-depot');
+  if (repSel?.value   && !gf.repid)  gf.repid  = repSel.value;
+  if (moisSel?.value  && !gf.mois)   gf.mois   = moisSel.value;
+  if (depotSel?.value && !gf.depot)  gf.depot  = depotSel.value;
+  return gf;
+}
+
+function getBuiltinExportQS() {
+  const PAGE_MAP = { '__rapport_ca': 'rapport_ca', '__rapport_commerciaux': 'rapport_commerciaux', '__rapport_reglement': 'rapport_reglement' };
+  const page   = PAGE_MAP[currentId];
+  const params = new URLSearchParams();
+  if (page) params.set('pages', page);
+
+  // Periode: derive from current period selector
+  const gf = buildGfFromPeriode();
+  params.set('periode', gf.annee ? 'full' : 'ytd');
+  // Annee (ytd_exe:..., exe:..., ou année calendaire) → propagée pour que les exports
+  // respectent les bornes fiscales
+  const anneeSel = qs('bf-periode')?.value || '';
+  if (anneeSel && (anneeSel.startsWith('ytd_exe:') || anneeSel.startsWith('exe:') || anneeSel.startsWith('cal:'))) {
+    // cal:YYYY → envoyer juste YYYY
+    params.set('annee', anneeSel.startsWith('cal:') ? anneeSel.slice(4) : anneeSel);
+  }
+
+  // bf-* selects + inputs (pr, mg, asof, …)
+  qs('filter-controls')?.querySelectorAll('select[id^="bf-"], input[id^="bf-"]').forEach(sel => {
+    const key = sel.id.slice(3);
+    if (!['periode','mois','fin'].includes(key) && sel.value) params.set(key, sel.value);
+  });
+
+  // dbs multi-select
+  const dbsWrap = document.querySelector('.ms-wrap[data-key="dbs"]');
+  if (dbsWrap) {
+    const checked = [...dbsWrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c=>c.checked).map(c=>c.value);
+    if (checked.length) params.set('dbs', checked.join(','));
+  }
+
+  params.set('token', AUTH.getToken() || '');
+  return '?' + params.toString();
+}
+
+async function exportExcel() {
+  if (!currentId) return;
+  const btn = qs('excel-btn');
+  btn.disabled = true; btn.textContent = '⏳ Export…';
+  try {
+    if (currentType === 'builtin') {
+      const PAGE_MAP = { '__rapport_ca': 'rapport_ca', '__rapport_commerciaux': 'rapport_commerciaux', '__rapport_reglement': 'rapport_reglement' };
+      const page   = PAGE_MAP[currentId];
+      const gf     = buildGfFromPeriode();
+      const pr     = qs('bf-pr')?.value || 'PLVCRUMP';
+      const mg     = qs('bf-mg')?.value || 'sf';
+      const asof   = qs('bf-asof')?.value || undefined;
+      const dbsWrap = document.querySelector('.ms-wrap[data-key="dbs"]');
+      const dbs    = dbsWrap ? [...dbsWrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c=>c.checked).map(c=>c.value).join(',') : '';
+      const anneeSel = qs('bf-periode')?.value || '';
+      const anneeParam = (anneeSel.startsWith('ytd_exe:') || anneeSel.startsWith('exe:')) ? anneeSel
+                       : anneeSel.startsWith('cal:') ? anneeSel.slice(4)
+                       : undefined;
+      const body   = { pages: page ? [page] : ['rapport_ca','rapport_commerciaux'], periode: gf.annee ? 'full' : 'ytd', annee: anneeParam, pr, mg, dbs: dbs || undefined, asof };
+      const r = await fetch('/api/commercial/builtin-export/excel', {
+        method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + (AUTH.getToken()||'')},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) { const e = await r.json().catch(()=>({error:r.statusText})); throw new Error(e.error); }
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = `rapport-tb-${new Date().toISOString().slice(0,10)}.xlsx`;
+      a.click(); URL.revokeObjectURL(url);
+      btn.textContent = '✓ Téléchargé';
+      setTimeout(() => { btn.textContent = '📊 Excel'; btn.disabled = false; }, 3000);
+      return;
+    }
+    const fp = getExportParams();
+    console.log('[exportExcel] filterParams:', JSON.stringify(fp));
+    const endpoint = currentType === 'dashboard'
+      ? `${API}/dashboards/${currentId}/export`
+      : `${API}/reports/${currentId}/export`;
+    const r = await fetch(endpoint, {
+      method:'POST', headers:{'Content-Type':'application/json', 'Authorization':'Bearer ' + (AUTH.getToken()||'')},
+      body: JSON.stringify({ filterParams: fp })
+    });
+    if (!r.ok) { const e = await r.json().catch(()=>({error:r.statusText})); throw new Error(e.error); }
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const safe = (_currentItem?.name||'rapport').replace(/[^a-zA-Z0-9_\- ]/g,'_');
+    a.href = url; a.download = `${safe}.xlsx`;
+    a.click(); URL.revokeObjectURL(url);
+    btn.textContent = '✓ Téléchargé';
+    setTimeout(() => { btn.textContent = '📊 Excel'; btn.disabled = false; }, 3000);
+  } catch(e) {
+    btn.textContent = '⚠ Erreur';
+    setTimeout(() => { btn.textContent = '📊 Excel'; btn.disabled = false; }, 3000);
+    alert('Export Excel : ' + e.message);
+  }
+}
+
+function buildFilterQS() {
+  const fp = getExportParams();
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(fp)) { if (v !== undefined && v !== '') qs.set(k, v); }
+  return qs.toString() ? '&' + qs.toString() : '';
+}
+
+function exportHTML() {
+  if (!currentId) return;
+  if (currentType === 'builtin') {
+    window.location.href = '/api/commercial/builtin-export/html' + getBuiltinExportQS();
+    return;
+  }
+  if (currentType !== 'dashboard' && currentType !== 'report') return;
+  const endpoint = currentType === 'dashboard'
+    ? `${API}/dashboards/${currentId}/html`
+    : `${API}/reports/${currentId}/html`;
+  const tk = encodeURIComponent(AUTH.getToken() || '');
+  window.location.href = endpoint + '?token=' + tk + buildFilterQS();
+}
+
+function exportPDF() {
+  if (!currentId) return;
+  if (currentType === 'builtin') {
+    window.open('/api/commercial/builtin-export/pdf' + getBuiltinExportQS(), '_blank');
+    return;
+  }
+  if (currentType !== 'dashboard' && currentType !== 'report') return;
+  const endpoint = currentType === 'dashboard'
+    ? `${API}/dashboards/${currentId}/preview`
+    : `${API}/reports/${currentId}/preview`;
+  const tk = encodeURIComponent(AUTH.getToken() || '');
+  window.open(endpoint + '?print=1&token=' + tk + buildFilterQS(), '_blank');
+}
+
+function onRefresh() {
+  if (currentType === 'builtin') loadBuiltin(currentId);
+  else loadWidgets();
+}
+
+async function onActifChange() {
+  // 'all' (défaut) = pas de filtre côté serveur ; 'O' = actifs ; 'N' = inactifs.
+  // On envoie toujours le param explicitement pour que le serveur sache distinguer
+  // « omis = Tous » (compat) de « explicitement Tous » (ici equivalent, mais sans ambiguïté).
+  const actif = qs('bf-actif')?.value || 'all';
+  try {
+    const url = `/api/commercial/filters?actif=${encodeURIComponent(actif)}`;
+    const fd = await fetch(url).then(r => r.json());
+    commerciaux = fd.commerciaux || [];
+    // Re-rendre le ms-wrap commercial si présent
+    const repWrap = document.querySelector('.ms-wrap[data-key="repid"]');
+    if (repWrap) {
+      const dd = repWrap.querySelector('.ms-dd');
+      if (dd) {
+        let items = `<label class="all-opt"><input type="checkbox" class="ms-all" checked onchange="onMsChange(event,'repid')"> Tous</label>`;
+        items += commerciaux.map(c => `<label><input type="checkbox" value="${c.TIRID}" data-label="${escH(c.nom)}" onchange="onMsChange(event,'repid')">${escH(c.nom)}</label>`).join('');
+        dd.innerHTML = items;
+        repWrap.querySelector('.ms-btn span').textContent = '— Tous —';
+      }
+    }
+  } catch {}
+  onRefresh();
+}
+
+async function openItem(id, type) {
+  currentId = id; currentType = type;
+  location.hash = id;
+  renderSidebar();
+
+  const item = type === 'dashboard' ? customDashboards.find(d=>d.id===id)
+             : type === 'report'    ? customReports.find(r=>r.id===id)
+             : null;
+  let filterData;
+  if (type === 'builtin') {
+    if (!dbConnections.length) {
+      try {
+        const fd = await fetch('/api/commercial/filters').then(r=>r.json());
+        dbConnections = fd.connections || [];
+        if (fd.defaultDb) dbDefaultEntry = fd.defaultDb;
+      } catch {}
+    }
+    // Le rapport Objectifs porte sa propre période (config d'objectif) — masquer le sélecteur
+    // de période du dashboard pour éviter d'afficher "YTD exercice" qui ne s'applique pas.
+    const builtinHasTime = id !== '__rapport_objectifs';
+    filterData = { hasTime: builtinHasTime, dimFilters: (BUILTIN_FILTER_DEFS[id] || []).map(d => ({ paramKey: d.key, label: d.label, source: d.source, default: d.default })), connections: dbConnections, defaultDbEntry: dbDefaultEntry };
+  } else {
+    filterData = await buildFilterData(id, item?.widgets || []);
+  }
+  renderFilterControls(id, item?.widgets || [], filterData);
+  if (type !== 'builtin') applyWidgetDefaultPeriod(item?.widgets || []);
+  qs('filters-bar').style.display = 'flex';
+
+  // Export buttons: dashboards, reports, and exportable builtins
+  const BUILTIN_EXPORTABLE = new Set(['__rapport_ca','__rapport_commerciaux','__rapport_reglement']);
+  const showExport = (type === 'dashboard' || type === 'report' || (type === 'builtin' && BUILTIN_EXPORTABLE.has(id))) ? 'inline-block' : 'none';
+  qs('excel-btn').style.display = showExport;
+  qs('html-btn').style.display  = showExport;
+  qs('pdf-btn').style.display   = showExport;
+
+  // Email button: for reports and builtins
+  const emailBtn = qs('email-btn');
+  if (type === 'report') {
+    emailBtn.style.display = 'inline-block';
+    const rpt = customReports.find(r=>r.id===id);
+    emailBtn.className = ((rpt?.schedules||[]).some(s=>s.enabled) || (!rpt?.schedules && rpt?.schedule?.enabled)) ? 'scheduled' : '';
+  } else if (type === 'builtin') {
+    emailBtn.style.display = 'inline-block';
+    fetch(`/api/commercial/builtin-schedules`)
+      .then(r=>r.json()).then(s=>{ emailBtn.className = ((s.schedules||[]).some(sc=>sc.enabled)||(!s.schedules&&s.schedule?.enabled))?'scheduled':''; })
+      .catch(()=>{});
+  } else {
+    emailBtn.style.display = 'none';
+  }
+
+  if (type === 'builtin') {
+    qs('placeholder').style.display='none';
+    qs('main-content').style.display='none';
+    qs('iframe-view').style.display='block';
+    loadBuiltin(id);
+    return;
+  }
+
+  qs('placeholder').style.display='none';
+  qs('iframe-view').style.display='none';
+  qs('main-content').style.display='block';
+  await loadWidgets();
+}
+
+// Backwards compat for any external links
+function openDashboard(id) { openItem(id, 'dashboard'); }
+function openReport(id)    { openItem(id, 'report'); }
+
+function loadBuiltin(id) {
+  const builtin = BUILTINS.find(b => b.id === id);
+  if (!builtin) return;
+
+  const pad = n => String(n).padStart(2, '0');
+  const today = new Date();
+  const params = new URLSearchParams({ embed: '1' });
+
+  // Règlement clients : la page calcule toujours sur 12 mois glissants. On force le
+  // sélecteur de période à `12m` à l'entrée pour éviter de montrer une période
+  // (ex. "YTD Exercice") qui ne correspond pas aux données affichées.
+  if (id === '__rapport_reglement') {
+    const sel = qs('bf-periode');
+    if (sel && sel.value !== '12m') sel.value = '12m';
+  }
+
+  // Convertir le sélecteur de période en params compris par les pages intégrées
+  const gf = buildGfFromPeriode();
+  if (gf.annee) {
+    // cal:YYYY — année calendaire complète
+    params.set('annee', gf.annee);
+    params.set('full', '1');
+  } else if (gf.periode_debut) {
+    const pd = gf.periode_debut;
+    if (pd === 'ytd') {
+      params.set('annee', 'ytd');
+    } else if (pd === 'mtd') {
+      params.set('annee', 'ytd');
+    } else if (pd.startsWith('ytd_exe:')) {
+      // YTD exercice fiscal — format ytd_exe:d1:d2 (d1 début exercice, d2 fin exercice)
+      const parts = pd.split(':');
+      params.set('annee', pd);              // rapport-*.html lisent annee=ytd_exe:d1:d2
+      // NE PAS poser full=1 (YTD mode = jusqu'à aujourd'hui)
+      params.set('date_debut', parts[1]);
+      const today = new Date();
+      const isoT = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+      params.set('date_fin', isoT);         // segmentation.html lit date_debut/date_fin
+    } else if (pd.startsWith('exe:')) {
+      // Exercice fiscal OU période glissante (30j/90j/12m) — format exe:d1:d2
+      const parts = pd.split(':');
+      params.set('annee', pd);           // rapport.html lit annee=exe:d1:d2
+      params.set('full', '1');
+      params.set('date_debut', parts[1]); // segmentation.html lit date_debut/date_fin
+      params.set('date_fin',   parts[2]);
+    }
+  }
+
+  // Filtres bf-* simples (ex: marge, actif, asof)
+  qs('filter-controls')?.querySelectorAll('select[id^="bf-"], input[id^="bf-"]').forEach(sel => {
+    const key = sel.id.slice(3);
+    if (['periode','mois','fin'].includes(key)) return;
+    // actif : toujours transmettre (même 'all' qui signifie "tous")
+    if (key === 'actif') { params.set('actif', sel.value); return; }
+    if (sel.value) params.set(key, sel.value);
+  });
+
+  // Filtre commercial (multi-select)
+  const repWrap = document.querySelector('.ms-wrap[data-key="repid"]');
+  if (repWrap) {
+    const checked = [...repWrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c => c.checked).map(c => c.value);
+    if (checked.length > 0) params.set('repid', checked.join(','));
+  }
+
+  // Filtre connexions (multi-select, mode check-all : ms-all toujours décoché)
+  const dbsWrap = document.querySelector('.ms-wrap[data-key="dbs"]');
+  if (dbsWrap) {
+    const checked = [...dbsWrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c => c.checked).map(c => c.value);
+    if (checked.length > 0) params.set('dbs', checked.join(','));
+  }
+
+  qs('iframe-view').src = builtin.url + '?' + params.toString();
+  qs('status-dot').className = 'ok';
+}
+
+// ── Widget loading (dashboards + rapports) ────────────────────────────────────
+
+async function loadWidgets() {
+  if (!currentId || currentType === 'builtin') return;
+  const btn=qs('refresh-btn'), dot=qs('status-dot');
+  btn.disabled=true; btn.textContent='…'; dot.className='';
+
+  const gf = buildGfFromPeriode();
+  qs('filter-controls')?.querySelectorAll('select[id^="bf-"]').forEach(sel => {
+    const key = sel.id.slice(3);
+    if (key !== 'periode' && key !== 'mois' && sel.value) gf[key] = sel.value;
+  });
+  qs('filter-controls')?.querySelectorAll('.ms-wrap').forEach(wrap => {
+    const key = wrap.dataset.key;
+    const checked = [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c=>c.checked).map(c=>c.value);
+    if (checked.length > 0) gf[key] = checked.join(',');
+  });
+
+  try {
+    const endpoint = currentType === 'report' ? `${API}/reports/${currentId}` : `${API}/dashboards/${currentId}`;
+    const item = await fetch(endpoint).then(r=>r.json());
+    if(item.error) throw new Error(item.error);
+
+    const content = qs('main-content');
+    content.innerHTML = `
+      <div class="item-title">${escH(item.name)}</div>
+      ${item.description?`<div class="item-desc">${escH(item.description)}</div>`:''}
+      <div class="widget-grid" id="widget-grid"></div>`;
+
+    _currentItem = item;
+    _currentGf   = gf;
+
+    const grid = qs('widget-grid');
+    grid.innerHTML = (item.widgets||[]).map((w,i)=>`
+      <div class="widget-box w-${w.width||'full'}" id="wb-${i}">
+        <div class="widget-head">
+          <span class="wh-title">${escH(w.title||`Widget ${i+1}`)}</span>
+          <span class="wh-spin">⏳</span>
+        </div>
+        <div class="widget-body" id="wb-body-${i}" style="color:var(--muted);font-size:.8rem">Chargement…</div>
+      </div>`).join('');
+
+    await Promise.all((item.widgets||[]).map((w,i) => loadWidget(i, w, gf)));
+
+    dot.className='ok';
+  } catch(e) {
+    qs('main-content').innerHTML=`<div style="color:var(--red);padding:16px">⚠ ${escH(e.message)}</div>`;
+    dot.className='err';
+  } finally {
+    btn.disabled=false; btn.textContent='↻ Actualiser';
+  }
+}
+
+async function loadWidget(i, w, gf) {
+  const spin = qs(`wb-${i}`)?.querySelector('.wh-spin');
+  const body = qs(`wb-body-${i}`);
+  if (spin) spin.textContent = '⏳';
+  try {
+    const isChart     = (w.displayType||'table') === 'chart' || (w.displayType||'table') === 'table-chart';
+    const isPureChart = (w.displayType||'table') === 'chart';
+    const srcMeta = sourceMeta.find(s => s.id === w.source);
+    const firstNonTimeDim = srcMeta?.dimensions?.find(d => !TIME_DIMS.has(d)) || null;
+    const xAxisDim = w.chartXAxis || (isChart ? firstNonTimeDim : null);
+    w._xAxis = xAxisDim;
+
+    const ruptures   = w.ruptures   || [];
+    const detailDims = w.detailDims || [];
+    const rawPivotCols = w.pivotCols || [];
+    // Si w.pivot a été explicitement mis à false, ignorer les pivotCols
+    const pivotCols  = w.pivot === false ? [] : rawPivotCols;
+    const pivot      = w.pivot === false ? false : ((pivotCols.length > 0) || (w.pivot || false));
+    const measures   = isPureChart && w.chartMeasures?.length ? w.chartMeasures : w.measures;
+    // Dimensions = union ruptures+détail+colonnes ; si vide fallback sur w.dimensions
+    const effDims  = [...new Set([...ruptures, ...detailDims, ...pivotCols])];
+    const sendDims = effDims.length ? effDims : (w.dimensions || []);
+
+    const effRuptures = isPureChart && !w.pivot
+      ? (xAxisDim ? [xAxisDim] : [])
+      : (() => {
+          if (!w.pivot && xAxisDim && !ruptures.includes(xAxisDim)) return [xAxisDim, ...ruptures];
+          return ruptures;
+        })();
+
+    // Construit params : conserve w.params, applique gf en surcharge.
+    // Pour les dims du toolbar (_activeDimSelectors), remplace les filtres saved par la valeur gf
+    // EN PRÉSERVANT le connector + openGroups + closeGroups + position du filtre original
+    // (sinon on casserait la structure de groupes ET/OU(...) configurée dans l'éditeur).
+    const baseParams = Object.fromEntries(Object.entries(w.params||{}).filter(([,v])=>v!==''&&v!=null));
+    const savedFilters = Array.isArray(baseParams.filters) ? baseParams.filters.slice() : [];
+    const paramToDim = {};
+    Object.entries(DIM_FILTER_MAP).forEach(([dim, df]) => { paramToDim[df.paramKey] = dim; });
+    // Pré-calcule les remplacements depuis gf
+    const gfReplacements = new Map(); // dim → {op, val} (à mettre à jour) | null (à supprimer)
+    for (const [k, v] of Object.entries(gf || {})) {
+      const dim = paramToDim[k];
+      if (!dim || !_activeDimSelectors.has(dim)) continue;
+      if (v === '' || v == null) { gfReplacements.set(dim, null); continue; }
+      const vals = String(v).split(',').filter(s => s !== '');
+      if (vals.length === 1)      gfReplacements.set(dim, { op: '=',  val: vals[0] });
+      else if (vals.length > 1)   gfReplacements.set(dim, { op: 'IN', val: v });
+    }
+    const newFilters = [];
+    const replacedDims = new Set();
+    savedFilters.forEach(f => {
+      if (!_activeDimSelectors.has(f.dimId)) { newFilters.push(f); return; }
+      if (!gfReplacements.has(f.dimId)) { newFilters.push(f); return; }
+      const repl = gfReplacements.get(f.dimId);
+      replacedDims.add(f.dimId);
+      if (repl == null) return; // gf vide → on retire le filtre saved
+      newFilters.push({
+        dimId: f.dimId,
+        op: repl.op,
+        val: repl.val,
+        ...(f.connector   ? { connector: f.connector }     : {}),
+        ...(f.openGroups  ? { openGroups: f.openGroups }   : {}),
+        ...(f.closeGroups ? { closeGroups: f.closeGroups } : {}),
+      });
+    });
+    // Dim gérée par toolbar mais sans filter[] correspondant : on l'ajoute simplement à la fin
+    for (const [dim, repl] of gfReplacements.entries()) {
+      if (replacedDims.has(dim) || repl == null) continue;
+      newFilters.push({ dimId: dim, op: repl.op, val: repl.val });
+    }
+    baseParams.filters = newFilters;
+    const data = await fetch(`${API}/widget-data`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({source:w.source, params:{...baseParams, ...gf, mois: gf.mois||''}, measures, ruptures: effRuptures, pivot, pivotCols, dimensions: sendDims, sortDir: w.sortDir, sortBy: w.sortBy, topN: w.topN||0})
+    }).then(r=>r.json());
+
+    if (spin) spin.textContent = '';
+    if (body) body.innerHTML = renderWidgetData(data, w);
+  } catch(e) {
+    if (spin) spin.textContent = '';
+    if (body) body.innerHTML = `<div class="widget-error">⚠ ${escH(e.message)}</div>`;
+  }
+}
+
+// ── Widget renderers ───────────────────────────────────────────────────────────
+
+function renderWidgetData(data, widget) {
+  const displayType = widget?.displayType || 'table';
+  if(data?.error) return `<div class="widget-error">⚠ ${escH(data.error)}</div>`;
+  if(!data) return '<div style="color:var(--muted);font-size:.8rem">Aucune donnée</div>';
+
+  if (displayType === 'chart') return renderChartWidget(data, widget);
+  if (displayType === 'table-chart') {
+    const chart = renderChartWidget(data, widget, 200);
+    let tbl = '';
+    if (data.type==='grouped') tbl = renderGrouped(data, widget);
+    else if (data.type==='pivot') tbl = renderPivot(data, widget);
+    else if (data.measures && data.rows) tbl = renderMultiTable(data, widget);
+    else if (Array.isArray(data) && data[0]?.format===undefined) tbl = renderTable(data);
+    return `<div style="display:flex;flex-direction:column;gap:10px">${chart}<div style="overflow-x:auto">${tbl}</div></div>`;
+  }
+
+  if(data.type==='grouped') return renderGrouped(data, widget);
+  if(data.type==='pivot')   return renderPivot(data, widget);
+  if(data.measures && data.rows) return renderMultiTable(data, widget);
+  if(Array.isArray(data)) return data[0]?.format!==undefined ? renderKPI(data) : renderTable(data);
+  return '<div style="color:var(--muted);font-size:.8rem">Format inconnu</div>';
+}
+
+function renderKPI(rows) {
+  if(!rows?.length) return '<div style="color:var(--muted);font-size:.8rem">Aucune donnée</div>';
+  return `<div class="kpi-grid">${rows.map(r=>`
+    <div class="kpi-card">
+      <div class="kpi-label">${escH(r.label)}</div>
+      <div class="kpi-value" style="color:${r.format==='percent'?(+r.valeur>=0?'var(--green)':'var(--red)'):'var(--blue)'}">
+        ${r.format==='euro'?fmtV(r.valeur):r.format==='percent'?((+r.valeur>=0?'+':'')+fmt(r.valeur,1)+' %'):r.format==='integer'?fmt(r.valeur):fmt(r.valeur,2)}
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+const EXTRA_COLS = { qte:'Qté', nb_cartons:'Cartons', nb_articles:'Articles', artpcb:'Colisage' };
+function renderTable(rows) {
+  if(!rows?.length) return '<div style="color:var(--muted);font-size:.8rem">Aucune donnée</div>';
+  const max=Math.max(...rows.map(r=>Math.abs(parseFloat(r.valeur)||0)),1);
+  const extraKeys = Object.keys(rows[0]?.extra||{}).filter(k=>EXTRA_COLS[k]);
+  const extraThs = extraKeys.map(k=>`<th class="num">${EXTRA_COLS[k]}</th>`).join('');
+  return `<table class="dash-table"><thead><tr><th>Libellé</th><th class="num">Valeur</th>${extraThs}<th></th></tr></thead><tbody>
+    ${rows.map(r=>{const p=Math.round(Math.abs(parseFloat(r.valeur)||0)/max*100);
+      const vFmt = fmtMeas(r.valeur, r.format);
+      const extraTds = extraKeys.map(k=>`<td class="num">${fmt(r.extra?.[k]||0)}</td>`).join('');
+      return `<tr><td>${escH(formatLabel(r.label))}</td><td class="num">${vFmt}</td>${extraTds}
+        <td><div class="bar-wrap"><div class="bar-fill" style="width:${p}%"></div></div></td></tr>`;
+    }).join('')}</tbody></table>`;
+}
+
+function fmtMeas(v, format) {
+  const n = parseFloat(v); if(isNaN(n)) return '—';
+  if(format==='qty') return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:0,maximumFractionDigits:2}).format(n);
+  if(format==='integer') return fmt(n,0);
+  return fmt(n)+' €';
+}
+
+function renderMultiTable(data, widget) {
+  const {measures, rows} = data;
+  if (!rows?.length) return '<div style="color:var(--muted);font-size:.8rem">Aucune donnée</div>';
+  const totOpt = widget?.showTotals || false;
+  const showColTot = totOpt === 'cols' || totOpt === 'both';
+  const measTots = measures.map(() => 0);
+  // Une colonne par dim au lieu d'un seul "Libellé" concaténé. Rétro-compat : si la donnée n'expose
+  // pas dimLabels/dimVals, on retombe sur une colonne unique avec row.label.
+  const dimLabels = Array.isArray(data.dimLabels) && data.dimLabels.length > 0 ? data.dimLabels : ['Libellé'];
+  const dimCount = dimLabels.length;
+  const rowLblTds = (r) => {
+    if (dimCount > 1 && Array.isArray(r.dimVals) && r.dimVals.length) {
+      return r.dimVals.slice(0, dimCount).map(v => `<td>${escH(formatLabel(v != null ? String(v) : ''))}</td>`).join('')
+        + (r.dimVals.length < dimCount ? '<td></td>'.repeat(dimCount - r.dimVals.length) : '');
+    }
+    return `<td${dimCount>1?` colspan="${dimCount}"`:''}>${escH(formatLabel(r.label))}</td>`;
+  };
+  const bodyRows = rows.map(r => {
+    if (showColTot) measures.forEach((m, i) => { measTots[i] += r.values[m.key] || 0; });
+    return `<tr>${rowLblTds(r)}${measures.map(m=>`<td class="num">${fmtMeas(r.values[m.key]||0, m.format)}</td>`).join('')}</tr>`;
+  }).join('');
+  const totLblTd = `<td${dimCount>1?` colspan="${dimCount}"`:''}><b>Total</b></td>`;
+  const footRow = showColTot ? `<tr class="tot-row">${totLblTd}${measTots.map((v,i)=>`<td class="num">${fmtMeas(v,measures[i].format)}</td>`).join('')}</tr>` : '';
+  return `<table class="dash-table"><thead><tr>
+    ${dimLabels.map(l=>`<th>${escH(l)}</th>`).join('')}
+    ${measures.map(m=>`<th class="num">${escH(m.label)}</th>`).join('')}
+  </tr></thead><tbody>${bodyRows}${footRow}</tbody></table>`;
+}
+
+function renderPivot(data, widget) {
+  if(!data?.rows?.length) return '<div style="color:var(--muted);font-size:.8rem">Aucune donnée</div>';
+  const {columns, rows, measures, staticMeasures=[]} = data;
+  const meas = measures || [];
+  const evolMode = widget?.evolMode || 'cols';
+  const isRowsMode = (evolMode === 'rows' || evolMode === 'each_col_rows');
+  const showEvolCol = (evolMode === 'cols' && columns.length >= 2) || isRowsMode;
+  const showInlineEvol = (evolMode === 'each_col' || evolMode === 'each_col_rows') && columns.length >= 2;
+  const evolColLabel = isRowsMode ? 'Évol. (vs préc.)' : 'Évol.';
+  const getV = (cell, mKey) => {
+    if (cell === undefined || cell === null) return 0;
+    if (typeof cell === 'object') return cell[mKey || meas[0]?.key] || 0;
+    return parseFloat(cell) || 0;
+  };
+  if (meas.length > 1 || (meas.length <= 1 && staticMeasures.length > 0 && meas.length + staticMeasures.length > 1)) return renderPivotMulti(data, widget);
+  const pivFmt = meas[0]?.format;
+  const totOpt = widget?.showTotals || false;
+  const showRowTot = totOpt === 'rows' || totOpt === 'both';
+  const showColTot = totOpt === 'cols' || totOpt === 'both';
+  const colTots = columns.map(() => 0);
+  const leafLabels = Array.isArray(data.leafDimLabels) && data.leafDimLabels.length > 0 ? data.leafDimLabels : ['Libellé'];
+  const leafCount = leafLabels.length;
+  const rowLblTds = (row) => {
+    if (leafCount > 1 && Array.isArray(row.dimVals) && row.dimVals.length) {
+      const cells = row.dimVals.slice(0, leafCount).map(v => `<td>${escH(formatLabel(v != null ? String(v) : ''))}</td>`).join('');
+      const pad = row.dimVals.length < leafCount ? '<td></td>'.repeat(leafCount - row.dimVals.length) : '';
+      return cells + pad;
+    }
+    return `<td${leafCount>1?` colspan="${leafCount}"`:''}>${escH(formatLabel(row.label))}</td>`;
+  };
+  let prevRowTotalFirst = null;
+  const bodyRows = rows.map(row => {
+    const vals = columns.map(c => getV(row.values[c], null));
+    if (showColTot) vals.forEach((v, i) => { colTots[i] += v; });
+    const rowTot = vals.reduce((a, b) => a + b, 0);
+    const tdCells = vals.map((v, ci) => {
+      const inline = (showInlineEvol && ci > 0) ? `<div class="evol-inline">${inlineDeltaHtml(v, vals[ci-1])}</div>` : '';
+      return `<td class="num">${fmtMeas(v, pivFmt)}${inline}</td>`;
+    }).join('');
+    let evCell = '';
+    if (showEvolCol) {
+      let ev = '';
+      if (evolMode === 'cols') ev = evolHtml(vals[vals.length-1], vals[vals.length-2]);
+      else if (isRowsMode) {
+        ev = (prevRowTotalFirst != null) ? evolHtml(rowTot, prevRowTotalFirst) : '';
+        prevRowTotalFirst = rowTot;
+      }
+      evCell = `<td class="evol">${ev}</td>`;
+    }
+    const staticTds = staticMeasures.map(m => `<td class="num">${fmtMeas(row.staticValues?.[m.key]||0, m.format)}</td>`).join('');
+    return `<tr>${rowLblTds(row)}
+      ${tdCells}
+      ${showRowTot?`<td class="num tot-col">${fmtMeas(rowTot, pivFmt)}</td>`:''}
+      ${evCell}
+      ${staticTds}
+    </tr>`;
+  }).join('');
+  const totLblTd = `<td${leafCount>1?` colspan="${leafCount}"`:''}><b>Total</b></td>`;
+  const footTdCells = colTots.map((v, ci) => {
+    const inline = (showInlineEvol && ci > 0) ? `<div class="evol-inline">${inlineDeltaHtml(v, colTots[ci-1])}</div>` : '';
+    return `<td class="num">${fmtMeas(v, pivFmt)}${inline}</td>`;
+  }).join('');
+  const footRow = showColTot ? `<tr class="tot-row">${totLblTd}
+    ${footTdCells}
+    ${showRowTot?`<td class="num tot-col">${fmtMeas(colTots.reduce((a,b)=>a+b,0),pivFmt)}</td>`:''}
+    ${showEvolCol?'<td></td>':''}
+    ${staticMeasures.map(()=>'<td></td>').join('')}
+  </tr>` : '';
+  return `<table class="dash-table"><thead><tr>${leafLabels.map(l=>`<th>${escH(l)}</th>`).join('')}
+    ${columns.map(c=>`<th class="num">${escH(formatLabel(c)).split(' / ').join('<br>')}</th>`).join('')}
+    ${showRowTot?'<th class="num tot-col">Total</th>':''}
+    ${showEvolCol?`<th class="num">${escH(evolColLabel)}</th>`:''}
+    ${staticMeasures.map(m=>`<th class="num" style="border-left:2px solid var(--border)">${escH(m.label)}</th>`).join('')}
+  </tr></thead><tbody>${bodyRows}${footRow}</tbody></table>`;
+}
+
+function renderPivotMulti(data, widget) {
+  const {columns, rows, measures, staticMeasures=[]} = data;
+  const evolMode = widget?.evolMode || 'cols';
+  const isRowsMode = (evolMode === 'rows' || evolMode === 'each_col_rows');
+  const showEvolCol = (evolMode === 'cols' && columns.length >= 2) || isRowsMode;
+  const showInlineEvol = (evolMode === 'each_col' || evolMode === 'each_col_rows') && columns.length >= 2;
+  const evolColLabel = isRowsMode ? 'Évol. (vs préc.)' : 'Évol.';
+  const totOpt = widget?.showTotals || false;
+  const showRowTot = totOpt === 'rows' || totOpt === 'both';
+  const showColTot = totOpt === 'cols' || totOpt === 'both';
+  const colTots = columns.map(() => measures.map(() => 0));
+  const leafLabels = Array.isArray(data.leafDimLabels) && data.leafDimLabels.length > 0 ? data.leafDimLabels : ['Libellé'];
+  const leafCount = leafLabels.length;
+  const rowLblTds = (row) => {
+    if (leafCount > 1 && Array.isArray(row.dimVals) && row.dimVals.length) {
+      const cells = row.dimVals.slice(0, leafCount).map(v => `<td>${escH(formatLabel(v != null ? String(v) : ''))}</td>`).join('');
+      const pad = row.dimVals.length < leafCount ? '<td></td>'.repeat(leafCount - row.dimVals.length) : '';
+      return cells + pad;
+    }
+    return `<td${leafCount>1?` colspan="${leafCount}"`:''}>${escH(formatLabel(row.label))}</td>`;
+  };
+  let prevRowTotalFirst = null;
+  const bodyRows = rows.map(row => {
+    const allVals = columns.map((c, ci) => {
+      const cell = row.values[c] || {};
+      const vs = measures.map(m => cell[m.key] || 0);
+      if (showColTot) vs.forEach((v, mi) => { colTots[ci][mi] += v; });
+      return vs;
+    });
+    const rowTotPerMeas = measures.map((_, mi) => allVals.reduce((a, vs) => a + vs[mi], 0));
+    let evolTd = '';
+    if (showEvolCol) {
+      let ev = '';
+      if (evolMode === 'cols') {
+        const lc = row.values[columns[columns.length-1]]||{}, pc = row.values[columns[columns.length-2]]||{};
+        ev = evolHtml(lc[measures[0].key]||0, pc[measures[0].key]||0);
+      } else if (isRowsMode) {
+        ev = (prevRowTotalFirst != null) ? evolHtml(rowTotPerMeas[0], prevRowTotalFirst) : '';
+        prevRowTotalFirst = rowTotPerMeas[0];
+      }
+      evolTd = `<td class="evol">${ev}</td>`;
+    }
+    const tdCells = allVals.map((vs, ci) => vs.map((v, mi) => {
+      const inline = (showInlineEvol && mi === 0 && ci > 0) ? `<div class="evol-inline">${inlineDeltaHtml(v, allVals[ci-1][0])}</div>` : '';
+      return `<td class="num">${fmtMeas(v, measures[mi].format)}${inline}</td>`;
+    }).join('')).join('');
+    const staticTds = staticMeasures.map(m =>
+      `<td class="num" style="border-left:2px solid var(--border)">${fmtMeas(row.staticValues?.[m.key]||0, m.format)}</td>`
+    ).join('');
+    return `<tr>${rowLblTds(row)}
+      ${tdCells}
+      ${showRowTot?rowTotPerMeas.map((v,mi)=>`<td class="num tot-col">${fmtMeas(v,measures[mi].format)}</td>`).join(''):''}
+      ${evolTd}${staticTds}
+    </tr>`;
+  }).join('');
+  const totLblTd = `<td${leafCount>1?` colspan="${leafCount}"`:''}><b>Total</b></td>`;
+  const footTdCells = colTots.map((mTots, ci) => mTots.map((v, mi) => {
+    const inline = (showInlineEvol && mi === 0 && ci > 0) ? `<div class="evol-inline">${inlineDeltaHtml(v, colTots[ci-1][0])}</div>` : '';
+    return `<td class="num">${fmtMeas(v, measures[mi].format)}${inline}</td>`;
+  }).join('')).join('');
+  const footRow = showColTot ? `<tr class="tot-row">${totLblTd}
+    ${footTdCells}
+    ${showRowTot?measures.map((m,mi)=>`<td class="num tot-col">${fmtMeas(colTots.reduce((a,ct)=>a+ct[mi],0),m.format)}</td>`).join(''):''}
+    ${showEvolCol?'<td></td>':''}
+    ${staticMeasures.map(()=>'<td style="border-left:2px solid var(--border)"></td>').join('')}
+  </tr>` : '';
+  const staticTh1 = staticMeasures.map(m =>
+    `<th class="num" rowspan="2" style="border-left:2px solid var(--border)">${escH(m.label)}</th>`
+  ).join('');
+  return `<table class="dash-table" style="min-width:max-content"><thead>
+    <tr>${leafLabels.map(l=>`<th rowspan="2">${escH(l)}</th>`).join('')}
+      ${columns.map(c=>`<th class="num" colspan="${measures.length}">${escH(formatLabel(c)).split(' / ').join('<br>')}</th>`).join('')}
+      ${showRowTot?`<th class="num tot-col" colspan="${measures.length}">Total</th>`:''}
+      ${showEvolCol?`<th class="num" rowspan="2">${escH(evolColLabel)}</th>`:''}
+      ${staticTh1}
+    </tr>
+    <tr>
+      ${columns.map(()=>measures.map(m=>`<th class="num" style="font-size:.65rem;font-weight:400">${escH(m.label)}</th>`).join('')).join('')}
+      ${showRowTot?measures.map(m=>`<th class="num tot-col" style="font-size:.65rem;font-weight:400">${escH(m.label)}</th>`).join(''):''}
+    </tr>
+  </thead><tbody>${bodyRows}${footRow}</tbody></table>`;
+}
+
+function renderGrouped(data, widget) {
+  if(!data?.groups?.length) return '<div style="color:var(--muted);font-size:.8rem">Aucune donnée</div>';
+  const {columns, groups, measures, staticMeasures=[], ruptureIds=[]} = data;
+  const meas = measures || [{key:'ca', label:'CA HT', format:'euro'}];
+  const isPivot = Array.isArray(columns)&&columns.length>0;
+  const evolMode = widget?.evolMode || 'cols';
+  const isRowsMode = (evolMode === 'rows' || evolMode === 'each_col_rows');
+  const evolRowDim = widget?.evolRowDim || 'leaf';
+  const evolRowLevel = (evolRowDim === 'leaf') ? -1 : ruptureIds.indexOf(evolRowDim);
+  const showEvolCol = isPivot && ((evolMode === 'cols' && columns.length >= 2) || isRowsMode);
+  const showInlineEvol = isPivot && (evolMode === 'each_col' || evolMode === 'each_col_rows') && columns.length >= 2;
+  const evolColLabel = isRowsMode ? 'Évol. (vs préc.)' : 'Évol.';
+  const collapsible = true;
+  const tId = 'tg'+Math.random().toString(36).slice(2,8);
+  let gCnt = 0;
+  // Libellés des dims feuilles (1 colonne par dim) — rétro-compat : si data n'expose rien, on
+  // tombe sur 1 colonne "Libellé" et `item.label` (joint avec ' / ').
+  const leafDimLabels = Array.isArray(data.leafDimLabels) && data.leafDimLabels.length > 0
+    ? data.leafDimLabels : ['Libellé'];
+  const leafCount = leafDimLabels.length;
+
+  const getPivotVals = (subtotal, col) => meas.map(m => {
+    const cell = subtotal[col];
+    if (typeof cell === 'object' && cell !== null) return cell[m.key] || 0;
+    return m === meas[0] ? parseFloat(cell || 0) : 0;
+  });
+  const staticTds = (item) => staticMeasures.map(m =>
+    `<td class="num" style="border-left:2px solid var(--border)">${fmtMeas(item.staticValues?.[m.key]||0, m.format)}</td>`
+  ).join('');
+  const totOpt = widget?.showTotals || false;
+  const showRowTot = isPivot && (totOpt === 'rows' || totOpt === 'both');
+  const showColTot = isPivot && (totOpt === 'cols' || totOpt === 'both');
+  const colGrandTots = isPivot ? columns.map(c => meas.map(m => {
+    return groups.reduce((sum, g) => {
+      const cell = (g.subtotal || {})[c];
+      if (typeof cell === 'object' && cell !== null) return sum + (cell[m.key] || 0);
+      return sum + (m === meas[0] ? parseFloat(cell || 0) : 0);
+    }, 0);
+  })) : [];
+  const measCols = isPivot
+    ? columns.map(c=>`<th class="num"${meas.length>1?` colspan="${meas.length}"`:''}>${escH(formatLabel(c)).split(' / ').join('<br>')}</th>`).join('')
+    : meas.map(m=>`<th class="num">${escH(m.label)}</th>`).join('');
+  const totColTh = isPivot && showRowTot
+    ? `<th class="num tot-col"${meas.length>1?` colspan="${meas.length}"`:''}>Total</th>` : '';
+  const staticThs = staticMeasures.map(m=>
+    `<th class="num" style="border-left:2px solid var(--border)">${escH(m.label)}</th>`
+  ).join('');
+  const subHeaderRow = isPivot && meas.length > 1
+    ? `<tr><th></th>${columns.map(()=>meas.map(m=>`<th class="num" style="font-size:.7rem;font-weight:normal;opacity:.75">${escH(m.label)}</th>`).join('')).join('')}${showRowTot?meas.map(m=>`<th class="num tot-col" style="font-size:.7rem;font-weight:normal;opacity:.75">${escH(m.label)}</th>`).join(''):''}${showEvolCol?'<th></th>':''}${staticMeasures.map(()=>'<th></th>').join('')}</tr>`
+    : '';
+  const dimHeaderTh = leafDimLabels.map(l => `<th>${escH(l)}</th>`).join('');
+  const subHeaderPad = leafCount > 1 ? `<th colspan="${leafCount}"></th>` : '<th></th>';
+  const subHeaderRowAdj = subHeaderRow ? subHeaderRow.replace('<tr><th></th>', `<tr>${subHeaderPad}`) : '';
+  let html=`<table class="dash-table"><thead><tr>${dimHeaderTh}${measCols}${totColTh}
+    ${showEvolCol?`<th class="num">${escH(evolColLabel)}</th>`:''}${staticThs}
+  </tr>${subHeaderRowAdj}</thead><tbody>`;
+
+  // Cellule libellé : pour les groupes (parent), on étale sur toutes les colonnes dim feuilles via colspan.
+  // Pour les feuilles, chaque dim a sa propre cellule (à partir de item.dimVals quand disponible).
+  const groupLabelTd = (label, ind, arrow) => {
+    const span = leafCount > 1 ? ` colspan="${leafCount}"` : '';
+    return `<td style="padding-left:${ind}px"${span}>${arrow}${escH(formatLabel(label))}</td>`;
+  };
+  const leafLabelTds = (item, indPad) => {
+    if (leafCount > 1 && Array.isArray(item.dimVals) && item.dimVals.length) {
+      const cells = [];
+      for (let i = 0; i < leafCount; i++) {
+        const v = item.dimVals[i] != null ? String(item.dimVals[i]) : '';
+        const padStyle = i === 0 ? `padding-left:${indPad}px;` : '';
+        cells.push(`<td style="${padStyle}color:var(--muted);font-size:.78rem">${escH(formatLabel(v))}</td>`);
+      }
+      return cells.join('');
+    }
+    return `<td style="padding-left:${indPad}px;color:var(--muted);font-size:.78rem"${leafCount>1?` colspan="${leafCount}"`:''}>${escH(formatLabel(item.label))}</td>`;
+  };
+
+  // Génère les <td> de cellules pivot avec deltas inline si activé
+  const renderTdCells = (allVals) => allVals.map((vs, ci) => vs.map((v, mi) => {
+    const inline = (showInlineEvol && mi === 0 && ci > 0) ? `<div class="evol-inline">${inlineDeltaHtml(v, allVals[ci-1][0])}</div>` : '';
+    return `<td class="num">${fmtMeas(v, meas[mi].format)}${inline}</td>`;
+  }).join('')).join('');
+
+  function renderItems(items, lv, parentId) {
+    let prevSibTotal = null;
+    const applyRowsEvolHere = isRowsMode && (lv === evolRowLevel);
+    items.forEach(item => {
+      const ind = (lv+1)*16;
+      if (item.children !== undefined) {
+        const cls = lv===0 ? 'group-row' : 'group-row lv1';
+        const gId = collapsible ? `${tId}-${gCnt++}` : '';
+        const idAttr   = collapsible ? ` id="${gId}"` : '';
+        const pgAttr   = (collapsible && parentId) ? ` data-pg="${parentId}"` : '';
+        const collAttr = collapsible ? ` data-coll="1" style="cursor:pointer"` : '';
+        const hidAttr  = (collapsible && parentId) ? ' hidden' : '';
+        const arrow    = collapsible ? `<span class="grp-arrow" onclick="toggleGrp('${gId}',event)">▸</span> ` : '▸ ';
+        const labelTd  = groupLabelTd(item.label, ind, arrow);
+        if (isPivot) {
+          const allVals = columns.map(c=>getPivotVals(item.subtotal||{},c));
+          const firstVals = allVals.map(vs=>vs[0]);
+          const rowTotTds = showRowTot ? meas.map((_,mi)=>`<td class="num tot-col">${fmtMeas(allVals.reduce((a,vs)=>a+vs[mi],0),meas[mi].format)}</td>`).join('') : '';
+          let evolTd = '';
+          if (showEvolCol) {
+            let ev = '';
+            if (evolMode === 'cols') ev = evolHtml(firstVals[firstVals.length-1], firstVals[firstVals.length-2]);
+            else if (applyRowsEvolHere) {
+              const totalFirst = firstVals.reduce((a,b)=>a+b,0);
+              ev = (prevSibTotal != null) ? evolHtml(totalFirst, prevSibTotal) : '';
+              prevSibTotal = totalFirst;
+            }
+            evolTd = `<td class="evol">${ev}</td>`;
+          }
+          html+=`<tr class="${cls}"${idAttr}${pgAttr}${collAttr}${hidAttr}>${labelTd}${renderTdCells(allVals)}${rowTotTds}${evolTd}${staticTds(item)}</tr>`;
+        } else {
+          const tdMeas = meas.map(m=>{
+            const v = typeof item.subtotal==='object'&&item.subtotal!==null?(item.subtotal[m.key]||0):item.subtotal;
+            return `<td class="num">${fmtMeas(v, m.format)}</td>`;
+          }).join('');
+          html+=`<tr class="${cls}"${idAttr}${pgAttr}${collAttr}${hidAttr}>${labelTd}${tdMeas}${staticTds(item)}</tr>`;
+        }
+        renderItems(item.children, lv+1, collapsible ? gId : null);
+      } else {
+        const pgAttr  = (collapsible && parentId) ? ` data-pg="${parentId}"` : '';
+        const hidAttr = (collapsible && parentId) ? ' hidden' : '';
+        const lblTds  = leafLabelTds(item, ind+8);
+        if (isPivot) {
+          const allVals = columns.map(c=>getPivotVals(item.values||{},c));
+          const firstVals = allVals.map(vs=>vs[0]);
+          const rowTot1 = firstVals.reduce((a,b)=>a+b,0);
+          const rowTotTds = showRowTot ? meas.map((_,mi)=>`<td class="num tot-col">${fmtMeas(allVals.reduce((a,vs)=>a+vs[mi],0),meas[mi].format)}</td>`).join('') : '';
+          let evolTd = '';
+          if (showEvolCol) {
+            let ev = '';
+            if (evolMode === 'cols') ev = evolHtml(firstVals[firstVals.length-1], firstVals[firstVals.length-2]);
+            else if (isRowsMode && evolRowLevel === -1) {
+              ev = (prevSibTotal != null) ? evolHtml(rowTot1, prevSibTotal) : '';
+              prevSibTotal = rowTot1;
+            }
+            evolTd = `<td class="evol">${ev}</td>`;
+          }
+          html+=`<tr${pgAttr}${hidAttr}>${lblTds}${renderTdCells(allVals)}${rowTotTds}${evolTd}${staticTds(item)}</tr>`;
+        } else {
+          const tdMeas = meas.map(m=>{
+            const v = (item.values||{})[m.key]??item.valeur??0;
+            return `<td class="num">${fmtMeas(v, m.format)}</td>`;
+          }).join('');
+          html+=`<tr${pgAttr}${hidAttr}>${lblTds}${tdMeas}${staticTds(item)}</tr>`;
+        }
+      }
+    });
+  }
+  renderItems(groups, 0, null);
+  if (showColTot && isPivot) {
+    const grandTotTds = showRowTot ? meas.map((_,mi)=>`<td class="num tot-col">${fmtMeas(colGrandTots.reduce((a,mTots)=>a+mTots[mi],0),meas[mi].format)}</td>`).join('') : '';
+    const totLblTd = `<td${leafCount>1?` colspan="${leafCount}"`:''}><b>Total</b></td>`;
+    const footTdCells = colGrandTots.map((mTots, ci) => mTots.map((v, mi) => {
+      const inline = (showInlineEvol && mi === 0 && ci > 0) ? `<div class="evol-inline">${inlineDeltaHtml(v, colGrandTots[ci-1][0])}</div>` : '';
+      return `<td class="num">${fmtMeas(v, meas[mi].format)}${inline}</td>`;
+    }).join('')).join('');
+    html += `<tr class="tot-row">${totLblTd}${footTdCells}${grandTotTds}${showEvolCol?'<td></td>':''}${staticMeasures.map(()=>'<td style="border-left:2px solid var(--border)"></td>').join('')}</tr>`;
+  }
+  return html+'</tbody></table>';
+}
+
+function toggleGrp(gId, evt) {
+  if (evt) evt.stopPropagation();
+  const tr = document.getElementById(gId);
+  if (!tr) return;
+  const collapsing = tr.dataset.coll === '0';
+  tr.dataset.coll = collapsing ? '1' : '0';
+  const arrow = tr.querySelector('.grp-arrow');
+  if (arrow) arrow.textContent = collapsing ? '▸' : '▾';
+  // Show/hide direct children; when collapsing also recursively collapse sub-groups
+  document.querySelectorAll(`[data-pg="${gId}"]`).forEach(child => {
+    if (collapsing) {
+      child.hidden = true;
+      if (child.id && child.dataset.coll === '0') toggleGrp(child.id);
+    } else {
+      child.hidden = false;
+    }
+  });
+}
+
+// ── Chart widget renderer ──────────────────────────────────────────────────────
+
+function renderChartWidget(data, widget, height) {
+  const chartType = widget.chartType || 'bar';
+  const chartMeasures = widget.chartMeasures?.length ? widget.chartMeasures
+    : (widget.chartMeasure ? [widget.chartMeasure] : null);
+  const wId = widget._renderId || ('c'+Math.random().toString(36).slice(2));
+  widget._renderId = wId;
+  const chartH = height || 280;
+
+  let labels = [], datasets = [];
+
+  // Résout les mesures actives : chartMeasures si défini, sinon TOUTES les mesures disponibles
+  const resolveMeas = (available) => {
+    if (chartMeasures?.length) return chartMeasures.map(k => available?.find(m => m.key === k)).filter(Boolean);
+    return (available || []).filter(Boolean);
+  };
+
+  if (data.type === 'pivot') {
+    // Colonnes = axe X (périodes)
+    labels = data.columns.map(c => formatLabel(c));
+    if (widget.chartSeriesBy === 'row') {
+      // Une série par ligne (ex: fournisseur), avec le 1er indicateur sélectionné
+      const meas = resolveMeas(data.measures)[0] || data.measures?.[0];
+      datasets = (data.rows || []).map(row => ({
+        label: formatLabel(row.label),
+        data: data.columns.map(col => {
+          const cell = row.values?.[col];
+          if (!cell) return 0;
+          return typeof cell === 'object' ? (cell[meas?.key] || 0) : parseFloat(cell || 0);
+        })
+      }));
+    } else {
+      // Une série par indicateur (somme sur toutes les lignes) — comportement par défaut
+      const activeMeas = resolveMeas(data.measures);
+      const measList = activeMeas.length ? activeMeas : [data.measures?.[0]].filter(Boolean);
+      datasets = measList.map(meas => ({
+        label: meas.label,
+        data: data.columns.map(col =>
+          data.rows.reduce((sum, r) => {
+            const cell = r.values?.[col];
+            if (!cell) return sum;
+            return sum + (typeof cell === 'object' ? (cell[meas.key] || 0) : parseFloat(cell || 0));
+          }, 0)
+        )
+      }));
+    }
+  } else if (data.type === 'grouped' && data.groups) {
+    const flat = data.groups;
+    const measList = resolveMeas(data.measures);
+    const activeMeas = measList.length ? measList : [{key:'ca', label:'CA'}];
+    const getSubVal = (sub, key) => {
+      if (!sub || typeof sub !== 'object') return parseFloat(sub || 0);
+      if (key in sub) return sub[key] || 0;
+      return Object.values(sub).reduce((s, v) => s + (typeof v === 'object' ? (v[key] || 0) : 0), 0);
+    };
+    if (widget.chartSeriesBy === 'row' && Array.isArray(data.columns) && data.columns.length) {
+      // Grouped + pivot : X = colonnes (années), une série par groupe (fournisseur)
+      labels = data.columns.map(c => formatLabel(c));
+      const meas = activeMeas[0];
+      datasets = flat.map(g => ({
+        label: formatLabel(g.label),
+        data: data.columns.map(col => {
+          const cell = (g.subtotal || {})[col];
+          if (cell == null) return 0;
+          return typeof cell === 'object' ? (cell[meas?.key] || 0) : parseFloat(cell || 0);
+        })
+      }));
+    } else {
+      // Défaut : X = groupes, une série par indicateur
+      labels = flat.map(g => formatLabel(g.label));
+      datasets = activeMeas.map(meas => ({
+        label: meas.label,
+        data: flat.map(g => getSubVal(g.subtotal, meas.key))
+      }));
+    }
+  } else if (data.measures && data.rows) {
+    const activeMeas = resolveMeas(data.measures).filter(Boolean);
+    const measList = activeMeas.length ? activeMeas : [data.measures[0]].filter(Boolean);
+
+    // Si labels multi-dim concaténés ("A / B / C"), agréger sur l'axe X
+    const effectiveXAxis = widget._xAxis || widget.chartXAxis;
+    const hasConcat = effectiveXAxis && data.rows.some(r => (r.label||'').includes(' / '));
+    if (hasConcat) {
+      const dims = [...(widget.ruptures||[]), ...(widget.detailDims||[]), ...(widget.pivotCols||[])];
+      const xIdx = dims.indexOf(effectiveXAxis);
+      const getKey = lbl => {
+        const parts = (lbl ?? '').split(' / ');
+        return (xIdx >= 0 && xIdx < parts.length) ? parts[xIdx] : parts[0];
+      };
+      const grouped = new Map();
+      data.rows.forEach(r => {
+        const key = getKey(r.label);
+        if (!grouped.has(key)) grouped.set(key, Object.fromEntries(measList.map(m => [m.key, 0])));
+        measList.forEach(m => { grouped.get(key)[m.key] += r.values[m.key] || 0; });
+      });
+      labels = [...grouped.keys()].map(formatLabel);
+      datasets = measList.map(m => ({ label: m.label, data: [...grouped.values()].map(g => g[m.key] || 0) }));
+    } else {
+      labels = data.rows.map(r => formatLabel(r.label));
+      datasets = measList.map(meas => ({
+        label: meas.label, data: data.rows.map(r => r.values[meas.key] || 0)
+      }));
+    }
+  } else if (Array.isArray(data)) {
+    labels = data.map(r => formatLabel(r.label));
+    datasets = [{ label: 'Valeur', data: data.map(r => parseFloat(r.valeur) || 0) }];
+  } else {
+    return '<div style="color:var(--muted);font-size:.8rem">Format non supporté pour le graphique</div>';
+  }
+
+  const COLORS = ['#2196F3','#4CAF50','#FF9800','#9C27B0','#F44336','#00BCD4','#FF5722','#607D8B'];
+  const canvasId = 'chart-' + wId;
+
+  setTimeout(() => {
+    destroyChart(canvasId);
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const isDoughnut = chartType === 'doughnut';
+    // Axe Y secondaire automatique si plusieurs séries avec des ordres de grandeur très différents
+    const useY2 = !isDoughnut && datasets.length >= 2 && (() => {
+      const maxes = datasets.map(ds => Math.max(...(ds.data||[]).map(Math.abs).filter(v=>v>0)));
+      const valid = maxes.filter(v => v > 0);
+      return valid.length >= 2 && (Math.max(...valid) / Math.min(...valid)) > 10;
+    })();
+    const chartData = isDoughnut
+      ? { labels, datasets: [{ data: datasets[0]?.data || [], backgroundColor: COLORS.slice(0, labels.length) }] }
+      : { labels, datasets: datasets.map((ds, i) => ({
+          ...ds,
+          backgroundColor: COLORS[i % COLORS.length] + (chartType==='line'?'33':'cc'),
+          borderColor: COLORS[i % COLORS.length],
+          borderWidth: chartType==='line'?2:1,
+          fill: false, tension: 0.3,
+          yAxisID: useY2 && i > 0 ? 'y2' : 'y'
+        }))
+      };
+    const scaleBase = { ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: '#2a2d3e' } };
+    const instance = new Chart(canvas, {
+      type: chartType, data: chartData,
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 11 } } } },
+        scales: isDoughnut ? {} : {
+          x:  { ...scaleBase },
+          y:  { ...scaleBase, position: 'left' },
+          ...(useY2 ? { y2: { ...scaleBase, position: 'right', grid: { drawOnChartArea: false } } } : {})
+        }
+      }
+    });
+    chartInstances.set(canvasId, instance);
+  }, 50);
+
+  return `<div style="position:relative;height:${chartH}px"><canvas id="${canvasId}"></canvas></div>`;
+}
+
+// ── Filter helpers ─────────────────────────────────────────────────────────────
+
+function currentExercice() {
+  const today = new Date();
+  const t = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  return (exeYears || []).find(e => e.date_debut && e.date_fin && e.date_debut <= t && t <= e.date_fin) || null;
+}
+function periodeSelectHtml() {
+  const curY = new Date().getFullYear();
+  const curExe = currentExercice();
+  let h = '';
+  if (exeYears.length) {
+    h += `<optgroup label="─ YTD exercice ─">`;
+    exeYears.forEach(e => {
+      const isCur = curExe && e.date_debut === curExe.date_debut;
+      h += `<option value="ytd_exe:${e.date_debut}:${e.date_fin}"${isCur?' selected':''}>YTD ${escH(e.libelle||e.annee_debut||'')}${isCur?' (en cours)':''}</option>`;
+    });
+    h += `</optgroup>`;
+  }
+  h += `<optgroup label="─ Glissant ─">`;
+  h += `<option value="ytd"${curExe?'':' selected'}>YTD calendaire (depuis le 01/01)</option>`;
+  h += `<option value="month">Mois en cours</option>`;
+  h += `<option value="30j">30 derniers jours</option>`;
+  h += `<option value="90j">90 derniers jours</option>`;
+  h += `<option value="12m">12 mois glissants</option>`;
+  h += `</optgroup>`;
+  const calList = calYears.length ? calYears : Array.from({length:5}, (_, i) => curY - i);
+  h += `<optgroup label="─ Années calendaires ─">`;
+  calList.forEach(y => { h += `<option value="cal:${y}">${y}</option>`; });
+  h += `</optgroup>`;
+  if (exeYears.length) {
+    h += `<optgroup label="─ Exercices fiscaux ─">`;
+    exeYears.forEach(e => { h += `<option value="exe:${e.date_debut}:${e.date_fin}">${escH(e.libelle||e.annee_debut||'')}</option>`; });
+    h += `</optgroup>`;
+  }
+  return h;
+}
+function moisMsHtml(preChecked) {
+  const MOIS = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  const sel = preChecked ? String(preChecked).split(',').map(s=>s.trim()).filter(Boolean) : [];
+  const allChk = sel.length === 0;
+  let items = `<label class="all-opt"><input type="checkbox" class="ms-all"${allChk?' checked':''} onchange="onMsChange(event,'mois')"> Tous</label>`;
+  items += MOIS.map((m,k) => {
+    const v = String(k+1);
+    const lbl = (k+1<10?'0'+(k+1):k+1)+' '+m;
+    return `<label><input type="checkbox" value="${v}" data-label="${m}"${sel.includes(v)?' checked':''} onchange="onMsChange(event,'mois')">${lbl}</label>`;
+  }).join('');
+  const btnTxt = allChk ? '— Tous les mois —' : sel.map(v=>MOIS[parseInt(v)-1]).join(', ');
+  return `<div class="ms-wrap" data-key="mois" data-all-label="— Tous les mois —">
+    <button type="button" class="ms-btn" onclick="toggleMs(event,'mois')"><span>${btnTxt}</span></button>
+    <div class="ms-dd">${items}</div>
+  </div>`;
+}
+function anneesMsHtml(preChecked) {
+  const curY = new Date().getFullYear();
+  const list = (calYears && calYears.length ? calYears.slice() : Array.from({length:5}, (_, i) => curY - i)).map(Number).sort((a,b) => b - a);
+  const sel = preChecked ? String(preChecked).split(',').map(s=>s.trim()).filter(Boolean) : [];
+  const allChk = sel.length === 0;
+  let items = `<label class="all-opt"><input type="checkbox" class="ms-all"${allChk?' checked':''} onchange="onMsChange(event,'annees')"> Tous</label>`;
+  items += list.map(y => {
+    const v = String(y);
+    return `<label><input type="checkbox" value="${v}" data-label="${v}"${sel.includes(v)?' checked':''} onchange="onMsChange(event,'annees')">${v}</label>`;
+  }).join('');
+  const btnTxt = allChk ? '— Toutes les années —' : sel.length === 1 ? sel[0] : `${sel.length} années`;
+  return `<div class="ms-wrap" data-key="annees" data-all-label="— Toutes les années —">
+    <button type="button" class="ms-btn" onclick="toggleMs(event,'annees')"><span>${btnTxt}</span></button>
+    <div class="ms-dd">${items}</div>
+  </div>`;
+}
+function finCalSelectHtml() {
+  const curY = new Date().getFullYear();
+  const calList = calYears.length ? calYears : Array.from({length:5}, (_, i) => curY - i);
+  let h = `<option value="">= Début</option>`;
+  calList.forEach(y => { h += `<option value="${y}">${y}</option>`; });
+  return h;
+}
+function finExeSelectHtml() {
+  let h = `<option value="">= Début</option>`;
+  exeYears.forEach(e => { h += `<option value="exe:${e.date_debut}:${e.date_fin}">${escH(e.libelle||e.annee_debut||'')}</option>`; });
+  return h;
+}
+function onPeriodeChange() {
+  const val = qs('bf-periode')?.value || '';
+  const isCal = val.startsWith('cal:');
+  const isExe = val.startsWith('exe:');
+  const moisWrap = qs('bf-mois-wrap');
+  const finWrap  = qs('bf-fin-wrap');
+  const finSel   = qs('bf-fin');
+  if (isCal) {
+    if (finSel) finSel.innerHTML = finCalSelectHtml();
+    if (moisWrap) moisWrap.style.display = '';
+    if (finWrap)  finWrap.style.display  = '';
+  } else if (isExe) {
+    if (finSel) finSel.innerHTML = finExeSelectHtml();
+    if (moisWrap) moisWrap.style.display = 'none';
+    if (finWrap)  finWrap.style.display  = '';
+  } else {
+    // ytd, ytd_exe:..., mtd/month, glissant → pas de fin ni mois
+    if (moisWrap) moisWrap.style.display = 'none';
+    if (finWrap)  finWrap.style.display  = 'none';
+  }
+}
+function buildGfFromPeriode() {
+  const val = qs('bf-periode')?.value || '';
+  const finVal = qs('bf-fin')?.value || '';
+  const gf = {};
+  const pad = n => String(n).padStart(2,'0');
+  const isoD = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  if (val.startsWith('cal:')) {
+    const year = val.slice(4);
+    gf.annee = year; gf.periode_debut = year; gf.periode_fin = finVal || year;
+  } else if (val.startsWith('ytd_exe:')) {
+    gf.periode_debut = val; gf.periode_fin = val;
+  } else if (val.startsWith('exe:')) {
+    gf.periode_debut = val; gf.periode_fin = finVal || val;
+  } else if (val === 'ytd') {
+    gf.periode_debut = 'ytd'; gf.periode_fin = 'ytd';
+  } else if (val === 'month') {
+    gf.periode_debut = 'mtd'; gf.periode_fin = 'mtd';
+  } else if (val === '30j' || val === '90j' || val === '12m') {
+    const today = new Date(), todayStr = isoD(today), from = new Date(today);
+    if (val === '30j') from.setDate(from.getDate()-30);
+    else if (val === '90j') from.setDate(from.getDate()-90);
+    else from.setMonth(from.getMonth()-12);
+    gf.periode_debut = `exe:${isoD(from)}:${todayStr}`;
+    gf.periode_fin = gf.periode_debut;
+  }
+  return gf;
+}
+function repOptionsHtml() {
+  let h=`<option value="">— Tous —</option>`;
+  commerciaux.forEach(c=>{h+=`<option value="${c.TIRID}">${escH(c.nom)}</option>`;});
+  return h;
+}
+function depotOptionsHtml() {
+  let h=`<option value="">Tous les dépôts</option>`;
+  depots.forEach(d=>{h+=`<option value="${d.DEPID}">${escH(d.libelle)}${d.principal?' ★':''}</option>`;});
+  return h;
+}
+function fouOptionsHtml() {
+  let h=`<option value="">Tous les fournisseurs</option>`;
+  fournisseurs.forEach(f=>{h+=`<option value="${f.id}">${escH(f.libelle)} (${f.nb_articles})</option>`;});
+  return h;
+}
+
+function widgetFilterDefs(widgets) {
+  const seenParams = new Set();
+  const dimFilters = [];
+  // Pré-sélection : valeur saisie dans le widget filter pour cette dim (ex : cli_branche='FABRE')
+  const defaultsByParam = {};
+  let hasTime = false;
+  // Helper : expose dans le toolbar les dims du widget (rows + ruptures + colonnes pivot) et
+  // les filtres user-définis (w.params.filters). Réutilisé pour les sources custom ET les
+  // widgets _auto (où w.dimensions est défini directement, sans `src` dans sourceMeta).
+  const walkCustomWidget = (w, dims) => {
+    hasTime = true;
+    (dims || []).forEach(dimId => {
+      if (TIME_DIMS.has(dimId)) return;
+      const df = DIM_FILTER_MAP[dimId];
+      if (!df || seenParams.has(df.paramKey)) return;
+      seenParams.add(df.paramKey);
+      dimFilters.push({ dimId, ...df });
+    });
+    // Filtres par-widget (w.params.filters) : on expose dans le toolbar quand le dim est mappé
+    // dans DIM_FILTER_MAP et que l'op est compatible (= ou IN). La valeur saisie devient le défaut.
+    // Inclut les dims temps (time_annee, time_mois, time_anneemois, time_trimestre) — les contrôles
+    // période/mois/années globaux restent disponibles en parallèle.
+    (w.params?.filters || []).forEach(flt => {
+      if (!flt?.dimId) return;
+      if (!['=','!=','IN','NOT IN'].includes(flt.op)) return;
+      const df = DIM_FILTER_MAP[flt.dimId];
+      if (!df) return;
+      if (!seenParams.has(df.paramKey)) {
+        seenParams.add(df.paramKey);
+        dimFilters.push({ dimId: flt.dimId, ...df });
+      }
+      if (flt.val != null && flt.val !== '' && defaultsByParam[df.paramKey] == null) {
+        defaultsByParam[df.paramKey] = Array.isArray(flt.val) ? flt.val.join(',') : String(flt.val);
+      }
+    });
+  };
+  (widgets||[]).forEach(w => {
+    const src = sourceMeta.find(s => s.id === w.source);
+    // Source inconnue ou _auto : on s'appuie sur w.dimensions / w.params.filters directement
+    if (!src) {
+      walkCustomWidget(w, w.dimensions || []);
+      return;
+    }
+    if (src.isCustom) {
+      walkCustomWidget(w, [...(src.dimensions || []), ...(w.dimensions || [])]);
+    } else {
+      (src.paramDefs||[]).forEach(p => {
+        if (p.key === 'annee' || p.key === 'mois' || p.key === 'repid') { hasTime = true; return; }
+        if (seenParams.has(p.key)) return;
+        if (p.key === 'depid') { seenParams.add('depid'); dimFilters.push({ dimId:'depot', paramKey:'depid', label:'Dépôt', source:'stock-depot' }); }
+        else if (p.key === 'fouid') { seenParams.add('fouid'); dimFilters.push({ dimId:'fournisseur', paramKey:'fouid', label:'Fournisseur', source:'stock-fouid' }); }
+      });
+    }
+  });
+  return { hasTime, dimFilters, defaultsByParam };
+}
+
+async function buildFilterData(id, widgets) {
+  if (BUILTIN_FILTER_DEFS[id]) return {};
+  const { hasTime, dimFilters, defaultsByParam } = widgetFilterDefs(widgets);
+
+  // Charger les connexions si pas encore fait
+  if (!dbConnections.length) {
+    try {
+      const fd = await fetch('/api/commercial/filters').then(r=>r.json());
+      dbConnections = fd.connections || [];
+      if (fd.defaultDb) dbDefaultEntry = fd.defaultDb;
+    } catch {}
+  }
+  // Ajouter le filtre connexions si des extras existent
+  if (dbConnections.length) {
+    dimFilters.push({ paramKey: 'dbs', label: 'Connexions', source: 'connections' });
+  }
+
+  const fetchValues = {};
+  await Promise.all(dimFilters.map(async ({ dimId, paramKey, source }) => {
+    if (source !== 'fetch' || fetchValues[paramKey]) return;
+    try {
+      const vals = await fetch(`${API}/dimension-values?dim=${dimId}`).then(r=>r.json());
+      fetchValues[paramKey] = vals;
+    } catch { fetchValues[paramKey] = []; }
+  }));
+  return { hasTime, dimFilters, fetchValues, connections: dbConnections, defaultDbEntry: dbDefaultEntry, defaultsByParam: defaultsByParam || {} };
+}
+
+function toggleMs(e, key) {
+  e.stopPropagation();
+  const wrap = e.currentTarget.closest('.ms-wrap');
+  const dd = wrap.querySelector('.ms-dd');
+  const btn = wrap.querySelector('.ms-btn');
+  const isOpen = dd.classList.contains('open');
+  document.querySelectorAll('.ms-dd.open').forEach(d => {
+    d.classList.remove('open'); d.previousElementSibling?.classList.remove('open');
+  });
+  if (!isOpen) { dd.classList.add('open'); btn.classList.add('open'); }
+}
+function updateMsBtn(key) {
+  const wrap = document.querySelector(`.ms-wrap[data-key="${key}"]`);
+  if (!wrap) return;
+  const allItems = [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')];
+  const checked  = allItems.filter(c => c.checked);
+  const all = wrap.querySelector('input.ms-all');
+  const btn = wrap.querySelector('.ms-btn span');
+  const allLabel    = wrap.dataset.allLabel || '— Tous —';
+  const checkAllMode = wrap.dataset.allBehavior === 'check-all';
+  if (checkAllMode) {
+    // Mode connexions : ms-all sert juste à tout cocher, on le décoche ensuite
+    if (all) all.checked = false;
+    const allChecked = allItems.length > 0 && checked.length === allItems.length;
+    if (btn) btn.textContent = allChecked ? allLabel : (checked.length === 1 ? checked[0].dataset.label : `${checked.length} sélectionnés`);
+  } else {
+    if (checked.length === 0 || (all && all.checked)) {
+      if (btn) btn.textContent = allLabel;
+      if (all) { all.checked = true; wrap.querySelectorAll('input:not(.ms-all)').forEach(c => c.checked = false); }
+    } else {
+      if (btn) btn.textContent = checked.length === 1 ? checked[0].dataset.label : `${checked.length} sélectionnés`;
+      if (all) all.checked = false;
+    }
+  }
+}
+function onMsChange(e, key) {
+  const cb = e.target, wrap = cb.closest('.ms-wrap');
+  if (cb.classList.contains('ms-all')) {
+    if (wrap.dataset.allBehavior === 'check-all') {
+      // "Toutes" → coche tous les items individuels, se décoche lui-même
+      wrap.querySelectorAll('input:not(.ms-all)').forEach(c => c.checked = true);
+    } else {
+      wrap.querySelectorAll('input:not(.ms-all)').forEach(c => c.checked = false);
+    }
+  } else {
+    const all = wrap.querySelector('input.ms-all');
+    if (all) all.checked = false;
+  }
+  updateMsBtn(key);
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.ms-dd')) return;
+  document.querySelectorAll('.ms-dd.open').forEach(d => {
+    d.classList.remove('open'); d.previousElementSibling?.classList.remove('open');
+  });
+});
+
+function renderFilterControls(id, widgets, filterData = {}) {
+  const ctrl = qs('filter-controls');
+  const defs = BUILTIN_FILTER_DEFS[id];
+  if (defs && Object.keys(defs).length === 0) { ctrl.innerHTML = ''; _activeDimSelectors = new Set(); return; }
+
+  const { hasTime = true, dimFilters = [], fetchValues = {}, connections = [], defaultDbEntry = dbDefaultEntry, defaultsByParam = {} } = filterData;
+  // Index inverse paramKey → dimId pour savoir quels dims sont pilotés par le toolbar
+  const paramToDim = {};
+  Object.entries(DIM_FILTER_MAP).forEach(([dim, df]) => { paramToDim[df.paramKey] = dim; });
+  _activeDimSelectors = new Set(dimFilters.map(d => paramToDim[d.paramKey]).filter(Boolean));
+  let html = '';
+  if (hasTime) {
+    html += `<label>Période</label>
+             <select id="bf-periode" onchange="onPeriodeChange()">${periodeSelectHtml()}</select>
+             <span id="bf-fin-wrap" style="display:none">
+               <label style="margin-left:4px">→ Fin</label>
+               <select id="bf-fin">${finCalSelectHtml()}</select>
+             </span>
+             <span id="bf-mois-wrap" style="display:none">
+               ${moisMsHtml()}
+             </span>
+             <label style="margin-left:4px">Années</label>
+             ${anneesMsHtml()}
+             <span class="sep"></span>`;
+  }
+  dimFilters.forEach(({ paramKey, label, source, default: defaultValue }) => {
+    if (source === 'fetch') {
+      const vals = fetchValues[paramKey] || [];
+      const defStr = defaultsByParam[paramKey];
+      const defSet = defStr ? new Set(String(defStr).split(',').map(s => s.trim())) : null;
+      const allChecked = !defSet ? ' checked' : '';
+      const labelById = {};
+      let items = `<label class="all-opt"><input type="checkbox" class="ms-all"${allChecked} onchange="onMsChange(event,'${paramKey}')"> Tous</label>`;
+      items += vals.map(v => {
+        const idStr = String(v.id);
+        const isOn = defSet?.has(idStr) ? ' checked' : '';
+        if (isOn) labelById[idStr] = v.libelle;
+        return `<label><input type="checkbox" value="${escH(idStr)}" data-label="${escH(v.libelle)}"${isOn} onchange="onMsChange(event,'${paramKey}')">${escH(v.libelle)}</label>`;
+      }).join('');
+      // Libellé bouton selon défauts
+      let btnLabel = '— Tous —';
+      if (defSet) {
+        const checkedLbls = vals.filter(v => defSet.has(String(v.id))).map(v => v.libelle);
+        if (checkedLbls.length === 1) btnLabel = checkedLbls[0];
+        else if (checkedLbls.length > 1) btnLabel = `${checkedLbls.length} sélectionnés`;
+      }
+      html += `<label>${escH(label)}</label>
+               <div class="ms-wrap" data-key="${paramKey}">
+                 <button type="button" class="ms-btn" onclick="toggleMs(event,'${paramKey}')"><span>${escH(btnLabel)}</span></button>
+                 <div class="ms-dd">${items}</div>
+               </div>
+               <span class="sep"></span>`;
+    } else if (source === 'commercial') {
+      let items = `<label class="all-opt"><input type="checkbox" class="ms-all" checked onchange="onMsChange(event,'${paramKey}')"> Tous</label>`;
+      items += commerciaux.map(c => `<label><input type="checkbox" value="${c.TIRID}" data-label="${escH(c.nom)}" onchange="onMsChange(event,'${paramKey}')">${escH(c.nom)}</label>`).join('');
+      html += `<label>${escH(label)}</label>
+               <div class="ms-wrap" data-key="${paramKey}">
+                 <button type="button" class="ms-btn" onclick="toggleMs(event,'${paramKey}')"><span>— Tous —</span></button>
+                 <div class="ms-dd">${items}</div>
+               </div>
+               <span class="sep"></span>`;
+    } else {
+      if (source === 'connections') {
+        if (!connections.length) return; // ne rien afficher si aucune connexion supplémentaire
+        const allConns = [defaultDbEntry, ...connections];
+        // "Base en cours" coché par défaut, ms-all décoché
+        let items = `<label class="all-opt"><input type="checkbox" class="ms-all" onchange="onMsChange(event,'${paramKey}')"> Toutes</label>`;
+        items += allConns.map((c, i) => `<label><input type="checkbox" value="${escH(c.id)}" data-label="${escH(c.label)}"${i === 0 ? ' checked' : ''} onchange="onMsChange(event,'${paramKey}')">${escH(c.label)}</label>`).join('');
+        const btnLabel = escH(defaultDbEntry.label);
+        html += `<label>${escH(label)}</label>
+                 <div class="ms-wrap" data-key="${paramKey}" data-all-label="— Toutes —" data-all-behavior="check-all">
+                   <button type="button" class="ms-btn" onclick="toggleMs(event,'${paramKey}')"><span>${btnLabel}</span></button>
+                   <div class="ms-dd">${items}</div>
+                 </div>
+                 <span class="sep"></span>`;
+        return;
+      }
+      if (source === 'actif-rep') {
+        const def = (defaultValue === 'O' || defaultValue === 'N' || defaultValue === 'all') ? defaultValue : 'all';
+        const sel = v => v === def ? ' selected' : '';
+        html += `<label>${escH(label)}</label>
+                 <select id="bf-actif" onchange="onActifChange()">
+                   <option value="all"${sel('all')}>Tous (actifs + inactifs)</option>
+                   <option value="O"${sel('O')}>Actifs uniquement</option>
+                   <option value="N"${sel('N')}>Inactifs uniquement</option>
+                 </select>
+                 <span class="sep"></span>`;
+        return;
+      }
+      if (source === 'date-input') {
+        const t = new Date(), p2 = n => String(n).padStart(2,'0');
+        const todayStr = `${t.getFullYear()}-${p2(t.getMonth()+1)}-${p2(t.getDate())}`;
+        html += `<label>${escH(label)}</label>
+                 <input type="date" id="bf-${paramKey}" value="${todayStr}" onchange="onRefresh()">
+                 <span class="sep"></span>`;
+        return;
+      }
+      let opts = '';
+      if (source === 'stock-depot') opts = depotOptionsHtml();
+      else if (source === 'stock-fouid' || source === 'stock') opts = fouOptionsHtml();
+      else if (source === 'mg-type') opts = '<option value="sf">Marge SF</option><option value="af">Marge AF</option>';
+      else if (source === 'pr-type') opts = '<option value="PLVCRUMP">CRUMP</option><option value="PLVPRMP">PRMP</option><option value="PLVLASTPR">Dernier PR</option>';
+      html += `<label>${escH(label)}</label><select id="bf-${paramKey}" onchange="onRefresh()">${opts}</select>
+               <span class="sep"></span>`;
+    }
+  });
+  ctrl.innerHTML = html;
+  if (hasTime) onPeriodeChange();
+
+  // Appliquer les défauts PR / Marge depuis localStorage (alimenté par Paramètres > Apparence)
+  const prDef = localStorage.getItem('tb_pr_default');
+  const mgDef = localStorage.getItem('tb_mg_default');
+  const prSel = qs('bf-pr');
+  const mgSel = qs('bf-mg');
+  if (prSel && prDef) prSel.value = prDef;
+  if (mgSel && mgDef) mgSel.value = mgDef;
+}
+
+// Pre-populate period controls from first widget's saved params
+function applyWidgetDefaultPeriod(widgets) {
+  const periodeEl = qs('bf-periode');
+  if (!periodeEl) return;
+
+  // Find first widget with a configured period
+  const wp = (widgets || []).map(w => w.params || {}).find(p => p.periode_debut);
+  if (!wp) return;
+
+  const pd = wp.periode_debut; // e.g. "cal:2024", "ytd", "exe:..."
+
+  // Try to select the matching option
+  const opts = [...periodeEl.options];
+  const match = opts.find(o => o.value === pd);
+  if (match) {
+    periodeEl.value = pd;
+    onPeriodeChange(); // update fin/mois visibility
+
+    // Set fin year if present
+    // Backoffice stores "cal:YYYY" but bf-fin options use plain "YYYY"
+    const finEl = qs('bf-fin');
+    if (finEl && wp.periode_fin) {
+      let finVal = wp.periode_fin;
+      if (finVal.startsWith('cal:')) finVal = finVal.slice(4);
+      const finOpts = [...finEl.options];
+      if (finOpts.find(o => o.value === finVal)) finEl.value = finVal;
+    }
+
+    // Set mois if present
+    if (wp.mois) {
+      const moisWrap = document.querySelector('#bf-mois-wrap .ms-wrap[data-key="mois"]');
+      if (moisWrap) {
+        const moisSel = String(wp.mois).split(',').map(s => s.trim()).filter(Boolean);
+        moisWrap.querySelectorAll('input[type=checkbox]:not(.ms-all)').forEach(cb => {
+          cb.checked = moisSel.includes(cb.value);
+        });
+        updateMsBtn('mois');
+      }
+    }
+  }
+
+  // Set annees (multi-année) if present — indépendant du periode_debut
+  // (toutes les années cochées dans le widget sont pré-sélectionnées dans le toolbar)
+  const wpAnnees = (widgets || []).map(w => w.params || {}).find(p => p.annees);
+  if (wpAnnees?.annees) {
+    const anneesWrap = document.querySelector('.ms-wrap[data-key="annees"]');
+    if (anneesWrap) {
+      const yrSel = String(wpAnnees.annees).split(',').map(s => s.trim()).filter(Boolean);
+      anneesWrap.querySelectorAll('input[type=checkbox]:not(.ms-all)').forEach(cb => {
+        cb.checked = yrSel.includes(cb.value);
+      });
+      updateMsBtn('annees');
+    }
+  }
+}
+
+// ── Email / Schedule modal ─────────────────────────────────────────────────────
+
+// ── Helpers planifications multiples ──────────────────────────────────────────
+let _emSchedList  = [];
+let _bemSchedList = [];
+
+function _genSchedId() { return 's' + Math.random().toString(36).slice(2,8); }
+
+function _schedParseCron(cron) {
+  if (!cron) return { freq:'daily', days:[], dom:1, time:'08:00' };
+  const p = cron.trim().split(/\s+/);
+  if (p.length !== 5) return { freq:'custom', days:[], dom:1, time:'08:00' };
+  const [min, hour, dom, , dow] = p;
+  const h = hour==='*'?8:(parseInt(hour)||8), m = min==='*'?0:(parseInt(min)||0);
+  const time = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  if (dom!=='*' && dow==='*') { return { freq:'monthly', days:[], dom:parseInt(dom)||1, time }; }
+  if (dow!=='*' && dom==='*') {
+    let days=[];
+    dow.split(',').forEach(d=>{ if(d.includes('-')){const[a,b]=d.split('-').map(Number);for(let i=a;i<=b;i++)days.push(i);}else days.push(parseInt(d)); });
+    return { freq:'weekly', days:[...new Set(days)].filter(d=>!isNaN(d)), dom:1, time };
+  }
+  if (dom==='*' && dow==='*') return { freq:'daily', days:[], dom:1, time };
+  return { freq:'custom', days:[], dom:1, time };
+}
+
+function _schedInitUI(s) {
+  if (s._uiInit) return;
+  s._uiInit = true;
+  const ui = _schedParseCron(s.cron);
+  s._freq = ui.freq; s._days = [...(ui.days||[])]; s._dom = ui.dom; s._time = ui.time;
+  s._customCron = ui.freq==='custom' ? (s.cron||'') : '';
+}
+
+function _schedBuildCron(s) {
+  const [h,m] = (s._time||'08:00').split(':').map(Number);
+  const hh=isNaN(h)?8:h, mm=isNaN(m)?0:m;
+  if (s._freq==='daily')   return `${mm} ${hh} * * *`;
+  if (s._freq==='weekly')  return (s._days||[]).length?`${mm} ${hh} * * ${[...s._days].sort((a,b)=>a-b).join(',')}`:`${mm} ${hh} * * *`;
+  if (s._freq==='monthly') return `${mm} ${hh} ${s._dom||1} * *`;
+  return s._customCron||'';
+}
+
+const _DOW_M = [{d:1,l:'L'},{d:2,l:'M'},{d:3,l:'M'},{d:4,l:'J'},{d:5,l:'V'},{d:6,l:'S'},{d:0,l:'D'}];
+
+// Connexions DB disponibles pour les options par-planif (rempli au 1er openBuiltinEmailModal)
+let _bemDbsAll = [];
+// Libellés pages builtin (récupérés de builtin-titles)
+let _bemPageLabels = { rapport_ca: 'CA Global', rapport_commerciaux: 'CA par Commercial', rapport_reglement: 'Règlement clients' };
+
+function _renderBemOpts(s, i) {
+  const pages = Array.isArray(s.pages) ? s.pages : [];
+  const dbsArr = (typeof s.dbs === 'string') ? s.dbs.split(',').map(x=>x.trim()).filter(Boolean) : (Array.isArray(s.dbs) ? s.dbs : []);
+  const dbsHtml = _bemDbsAll.length
+    ? _bemDbsAll.map(c => `<label><input type="checkbox" value="${escH(c.id)}" ${dbsArr.includes(c.id)?'checked':''} onchange="_bemDbsToggle(${i},'${escH(c.id)}',this.checked)"> ${escH(c.label)}</label>`).join('')
+    : '<span style="font-size:.72rem;color:var(--muted)">Aucune connexion configurée — la base courante sera utilisée.</span>';
+  return `<div class="sched-opts-row">
+      <label>Titre</label>
+      <input type="text" value="${escH(s.title||'')}" placeholder="Titre du rapport (objet du mail)" oninput="_mProp('bem',${i},'title',this.value)">
+    </div>
+    <div class="sched-opts-row">
+      <label>Pages</label>
+      <div class="sched-opts-pages">
+        <label><input type="checkbox" ${pages.includes('rapport_ca')?'checked':''} onchange="_bemPageToggle(${i},'rapport_ca',this.checked)"> 📋 ${escH(_bemPageLabels.rapport_ca)}</label>
+        <label><input type="checkbox" ${pages.includes('rapport_commerciaux')?'checked':''} onchange="_bemPageToggle(${i},'rapport_commerciaux',this.checked)"> 👥 ${escH(_bemPageLabels.rapport_commerciaux)}</label>
+        <label><input type="checkbox" ${pages.includes('rapport_reglement')?'checked':''} onchange="_bemPageToggle(${i},'rapport_reglement',this.checked)"> 💶 ${escH(_bemPageLabels.rapport_reglement)}</label>
+      </div>
+    </div>
+    <div class="sched-opts-row">
+      <label>Période</label>
+      <select onchange="_mProp('bem',${i},'periode',this.value)">
+        <option value="ytd"${(s.periode||'ytd')==='ytd'?' selected':''}>YTD — depuis le 01/01</option>
+        <option value="full"${s.periode==='full'?' selected':''}>Année complète</option>
+      </select>
+    </div>
+    <div class="sched-opts-row">
+      <label>Marge</label>
+      <select onchange="_mProp('bem',${i},'mg',this.value)" style="flex:0 1 130px">
+        <option value="sf"${(s.mg||'sf')==='sf'?' selected':''}>Marge SF</option>
+        <option value="af"${s.mg==='af'?' selected':''}>Marge AF</option>
+      </select>
+      <label style="min-width:auto">Prix de revient</label>
+      <select onchange="_mProp('bem',${i},'pr',this.value)" style="flex:0 1 170px">
+        <option value="PLVCRUMP"${(s.pr||'PLVCRUMP')==='PLVCRUMP'?' selected':''}>CRUMP (défaut)</option>
+        <option value="PLVPRMP"${s.pr==='PLVPRMP'?' selected':''}>PRMP</option>
+        <option value="PLVLASTPR"${s.pr==='PLVLASTPR'?' selected':''}>Dernier PR</option>
+      </select>
+    </div>
+    <div class="sched-opts-row">
+      <label>Format</label>
+      <select onchange="_mProp('bem',${i},'format',this.value)">
+        <option value="html"${(s.format||'html')==='html'?' selected':''}>HTML — intégré</option>
+        <option value="excel"${s.format==='excel'?' selected':''}>Excel — pièce jointe</option>
+        <option value="pdf"${s.format==='pdf'?' selected':''}>PDF — pièce jointe</option>
+      </select>
+    </div>
+    <div class="sched-opts-row" style="align-items:flex-start">
+      <label>Connexions</label>
+      <div class="sched-opts-dbs" style="flex:1">${dbsHtml}</div>
+    </div>`;
+}
+
+function _renderEmOpts(s, i) {
+  return `<div class="sched-opts-row">
+      <label>Sujet</label>
+      <input type="text" value="${escH(s.subject||'')}" placeholder="Sujet du mail (vide = nom du rapport)" oninput="_mProp('em',${i},'subject',this.value)">
+    </div>
+    <div class="sched-opts-row">
+      <label>Format</label>
+      <select onchange="_mProp('em',${i},'format',this.value)">
+        <option value="html"${(s.format||'html')==='html'?' selected':''}>HTML — intégré</option>
+        <option value="excel"${s.format==='excel'?' selected':''}>Excel — pièce jointe</option>
+        <option value="pdf"${s.format==='pdf'?' selected':''}>PDF — pièce jointe</option>
+      </select>
+    </div>`;
+}
+
+function _renderSchedCards(containerId, schedArr, prefix) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  schedArr.forEach(s => _schedInitUI(s));
+  if (!schedArr.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:6px 0">Aucune planification. Cliquez sur "+ Ajouter".</div>';
+    return;
+  }
+  el.innerHTML = schedArr.map((s, i) => {
+    const freq=s._freq||'daily', days=s._days||[], dom=s._dom||1, time=s._time||'08:00';
+    const freqBtns = ['daily','weekly','monthly','custom'].map((f,fi)=>
+      `<button class="freq-btn${freq===f?' active':''}" onclick="_mFreq('${prefix}',${i},'${f}')">${['Quotidien','Hebdo','Mensuel','Libre'][fi]}</button>`
+    ).join('');
+    let body = '';
+    if (freq==='weekly') {
+      body = `<div class="dow-btns">${_DOW_M.map(({d,l})=>`<button id="${prefix}-dow-${i}-${d}" class="dow-btn${days.includes(d)?' active':''}" onclick="_mDow('${prefix}',${i},${d})">${l}</button>`).join('')}</div>`;
+    } else if (freq==='monthly') {
+      body = `<div id="${prefix}-domg-${i}" class="dom-grid">${Array.from({length:28},(_,k)=>k+1).map(d=>`<button data-d="${d}" class="dom-btn${d===dom?' active':''}" onclick="_mDom('${prefix}',${i},${d})">${d}</button>`).join('')}</div>`;
+    } else if (freq==='custom') {
+      body = `<input type="text" value="${escH(s._customCron||s.cron||'')}" placeholder="0 8 * * 1"
+        style="width:100%;padding:3px 7px;font-size:.8rem;font-family:monospace;margin-bottom:6px"
+        oninput="_mCustom('${prefix}',${i},this.value)">`;
+    }
+    const timeRow = freq!=='custom' ? `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <span style="font-size:.78rem;color:var(--muted)">Heure :</span>
+      <input type="time" value="${escH(time)}" style="padding:3px 7px;font-size:.82rem" onchange="_mTime('${prefix}',${i},this.value)">
+    </div>` : '';
+    const prev = s.cron ? `→ ${s.cron}` : '';
+    const recips = Array.isArray(s.recipients)?s.recipients.join(', '):s.recipients||'';
+    const optsHtml = prefix==='bem' ? _renderBemOpts(s, i) : _renderEmOpts(s, i);
+    const optsLabel = prefix==='bem' ? 'Options du rapport (titre, pages, période, format, connexions…)' : 'Options du mail (sujet, format)';
+    const optsOpen = !!s._optsOpen;
+    return `<div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--surface2)">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.8rem;cursor:pointer;flex-shrink:0">
+          <input type="checkbox" style="width:auto" ${s.enabled?'checked':''} onchange="_mProp('${prefix}',${i},'enabled',this.checked)"> Activée
+        </label>
+        <input type="text" value="${escH(s.label||'')}" placeholder="Libellé / sujet du mail" title="Sert d'objet pour le mail de cette planification (peut être surchargé dans Options > Titre)" style="flex:1;padding:3px 7px;font-size:.8rem"
+          oninput="_mProp('${prefix}',${i},'label',this.value)">
+        <button onclick="_mRemove('${prefix}',${i})" style="background:none;border:none;cursor:pointer;color:var(--red);font-size:.9rem;padding:2px 5px">🗑</button>
+      </div>
+      <div class="freq-btns">${freqBtns}</div>
+      ${body}
+      ${timeRow}
+      <div id="${prefix}-cprev-${i}" class="sched-cron-prev">${escH(prev)}</div>
+      <input type="text" value="${escH(recips)}" placeholder="Destinataires (vide = généraux)"
+        style="width:100%;padding:3px 7px;font-size:.8rem"
+        oninput="_mProp('${prefix}',${i},'recipients',this.value.split(',').map(t=>t.trim()).filter(Boolean))">
+      <div class="sched-opts-toggle${optsOpen?' open':''}" onclick="_mToggleOpts('${prefix}',${i},this)">
+        <span class="arrow">▶</span> ${optsLabel}
+      </div>
+      <div class="sched-opts${optsOpen?' open':''}">${optsHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+function _mToggleOpts(prefix, i, el) {
+  const list = _mList(prefix); if (!list[i]) return;
+  list[i]._optsOpen = !list[i]._optsOpen;
+  el.classList.toggle('open', list[i]._optsOpen);
+  const panel = el.nextElementSibling; if (panel) panel.classList.toggle('open', list[i]._optsOpen);
+}
+
+function _bemPageToggle(i, page, on) {
+  const l = _bemSchedList; if (!l[i]) return;
+  const cur = Array.isArray(l[i].pages) ? [...l[i].pages] : [];
+  const idx = cur.indexOf(page);
+  if (on && idx<0) cur.push(page);
+  if (!on && idx>=0) cur.splice(idx,1);
+  l[i].pages = cur;
+}
+
+function _bemDbsToggle(i, id, on) {
+  const l = _bemSchedList; if (!l[i]) return;
+  const arr = (typeof l[i].dbs === 'string') ? l[i].dbs.split(',').map(x=>x.trim()).filter(Boolean) : (Array.isArray(l[i].dbs) ? [...l[i].dbs] : []);
+  const idx = arr.indexOf(id);
+  if (on && idx<0) arr.push(id);
+  if (!on && idx>=0) arr.splice(idx,1);
+  l[i].dbs = arr.join(',');
+}
+
+function _mList(prefix) { return prefix==='em' ? _emSchedList : _bemSchedList; }
+function _mCId(prefix)  { return prefix==='em' ? 'em-sched-list' : 'bem-sched-list'; }
+
+function _mProp(prefix, i, f, v) { const l=_mList(prefix); if(l[i]) l[i][f]=v; }
+
+function _mRemove(prefix, i) {
+  _mList(prefix).splice(i, 1);
+  _renderSchedCards(_mCId(prefix), _mList(prefix), prefix);
+}
+function _mFreq(prefix, i, freq) {
+  const l=_mList(prefix); if(!l[i]) return;
+  l[i]._freq=freq; l[i].cron=_schedBuildCron(l[i]);
+  _renderSchedCards(_mCId(prefix), l, prefix);
+}
+function _mDow(prefix, i, day) {
+  const l=_mList(prefix); if(!l[i]) return;
+  const d=l[i]._days=l[i]._days||[]; const idx=d.indexOf(day); idx>=0?d.splice(idx,1):d.push(day);
+  l[i].cron=_schedBuildCron(l[i]);
+  const btn=document.getElementById(`${prefix}-dow-${i}-${day}`); if(btn) btn.classList.toggle('active',d.includes(day));
+  const prev=document.getElementById(`${prefix}-cprev-${i}`); if(prev) prev.textContent=l[i].cron?`→ ${l[i].cron}`:'';
+}
+function _mDom(prefix, i, dom) {
+  const l=_mList(prefix); if(!l[i]) return;
+  l[i]._dom=dom; l[i].cron=_schedBuildCron(l[i]);
+  const g=document.getElementById(`${prefix}-domg-${i}`); if(g) g.querySelectorAll('.dom-btn').forEach(b=>b.classList.toggle('active',+b.dataset.d===dom));
+  const prev=document.getElementById(`${prefix}-cprev-${i}`); if(prev) prev.textContent=l[i].cron?`→ ${l[i].cron}`:'';
+}
+function _mTime(prefix, i, t) {
+  const l=_mList(prefix); if(!l[i]) return;
+  l[i]._time=t; l[i].cron=_schedBuildCron(l[i]);
+  const prev=document.getElementById(`${prefix}-cprev-${i}`); if(prev) prev.textContent=l[i].cron?`→ ${l[i].cron}`:'';
+}
+function _mCustom(prefix, i, cron) {
+  const l=_mList(prefix); if(!l[i]) return;
+  l[i]._customCron=cron; l[i].cron=cron;
+  const prev=document.getElementById(`${prefix}-cprev-${i}`); if(prev) prev.textContent=cron?`→ ${cron}`:'';
+}
+
+function _cleanScheds(list) {
+  return list.map(({_uiInit,_freq,_days,_dom,_time,_customCron,_optsOpen,...rest})=>rest);
+}
+
+function emAddSched() {
+  _emSchedList.push({ id:_genSchedId(), enabled:false, label:'', cron:'', recipients:[], format:'html', subject:'', _optsOpen:true });
+  _renderSchedCards('em-sched-list', _emSchedList, 'em');
+}
+function bemAddSched() {
+  // Pré-remplit les options à partir du formulaire global (sert de "modèle par défaut")
+  const tpl = bemGetConfig();
+  _bemSchedList.push({
+    id:_genSchedId(), enabled:false, label:'', cron:'', recipients:[],
+    title: tpl.title || '',
+    pages: Array.isArray(tpl.pages) ? [...tpl.pages] : ['rapport_ca','rapport_commerciaux'],
+    periode: tpl.periode || 'ytd',
+    mg: tpl.mg || 'sf',
+    pr: tpl.pr || 'PLVCRUMP',
+    format: tpl.format || 'html',
+    dbs: tpl.dbs || '',
+    _optsOpen: true,
+  });
+  _renderSchedCards('bem-sched-list', _bemSchedList, 'bem');
+}
+
+function openEmailModal() {
+  if (currentType !== 'report') return;
+  const rpt = customReports.find(r => r.id === currentId);
+  if (!rpt) return;
+
+  const recipients = (rpt.recipients || []).join(', ');
+  qs('em-recipients').value = recipients;
+  qs('em-preview-link').href = `${API}/reports/${currentId}/preview`;
+
+  // Migrate old single schedule → schedules array et seeder format par défaut
+  const rawScheds = Array.isArray(rpt.schedules) ? rpt.schedules
+    : rpt.schedule?.cron ? [{ id:'s0', ...rpt.schedule }]
+    : [];
+  _emSchedList = JSON.parse(JSON.stringify(rawScheds)).map(s => ({
+    format:  s.format  !== undefined ? s.format  : 'html',
+    subject: s.subject !== undefined ? s.subject : '',
+    ...s,
+  }));
+  _renderSchedCards('em-sched-list', _emSchedList, 'em');
+
+  showMsg('em-send-msg', '', '');
+  showMsg('em-sched-msg', '', '');
+  qs('email-modal').classList.add('open');
+}
+function closeEmailModal() { qs('email-modal').classList.remove('open'); }
+
+function buildCron() {
+  const freq  = qs('em-freq').value;
+  const hour  = qs('em-hour').value;
+  if (freq === 'custom') return (qs('em-cron-custom').value || '').trim();
+  if (freq === 'daily')   return `0 ${hour} * * *`;
+  if (freq === 'weekly')  return `0 ${hour} * * ${qs('em-day').value}`;
+  if (freq === 'monthly') return `0 ${hour} ${qs('em-monthday').value} * *`;
+  return '';
+}
+
+const CRON_LABELS = {
+  daily:   h => `Tous les jours à ${h}h00`,
+  weekly:  (h, d) => { const j=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam']; return `Chaque semaine le ${j[d]} à ${h}h00`; },
+  monthly: (h, day) => `Le ${day} de chaque mois à ${h}h00`,
+  custom:  c => `Expression : ${c}`,
+};
+
+function updateCron() {
+  const freq = qs('em-freq').value;
+  const h = qs('em-hour').value;
+  let label = '';
+  if (freq === 'daily')   label = CRON_LABELS.daily(h);
+  else if (freq === 'weekly')  label = CRON_LABELS.weekly(h, parseInt(qs('em-day').value));
+  else if (freq === 'monthly') label = CRON_LABELS.monthly(h, qs('em-monthday').value);
+  qs('cron-preview').textContent = label ? `→ ${label}  (cron: ${buildCron()})` : '';
+}
+function updateCronPreview() {
+  qs('cron-preview').textContent = `→ cron: ${qs('em-cron-custom').value}`;
+}
+
+function loadCronIntoForm(cron) {
+  const parts = cron.split(' ');
+  if (parts.length !== 5) { qs('em-freq').value='custom'; qs('em-cron-custom').value=cron; onFreqChange(); return; }
+  const [min, hour, dom, mon, dow] = parts;
+  qs('em-hour').value = hour === '*' ? '8' : hour;
+  if (dom !== '*' && mon === '*' && dow === '*') {
+    qs('em-freq').value = 'monthly'; qs('em-monthday').value = dom;
+  } else if (dow !== '*' && dom === '*') {
+    qs('em-freq').value = 'weekly'; qs('em-day').value = dow;
+  } else if (dom === '*' && dow === '*') {
+    qs('em-freq').value = 'daily';
+  } else {
+    qs('em-freq').value = 'custom'; qs('em-cron-custom').value = cron;
+  }
+  onFreqChange(); updateCron();
+}
+
+function showMsg(id, type, text) {
+  const el = qs(id);
+  el.className = 'modal-msg' + (type ? ' ' + type : '');
+  el.textContent = text;
+  el.style.display = text ? '' : 'none';
+}
+
+async function sendNow() {
+  const btn = qs('em-send-btn');
+  const recipients = qs('em-recipients').value.trim();
+  if (!recipients) { showMsg('em-send-msg','err','Veuillez saisir au moins un destinataire.'); return; }
+  btn.disabled = true; btn.textContent = '…';
+  showMsg('em-send-msg','','');
+  try {
+    const r = await fetch(`${API}/reports/${currentId}/send`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ recipients })
+    }).then(r=>r.json());
+    if (r.error) throw new Error(r.error);
+    showMsg('em-send-msg','ok',`Email envoyé à : ${r.sent.join(', ')}`);
+  } catch(e) {
+    showMsg('em-send-msg','err',`Erreur : ${e.message}`);
+  } finally {
+    btn.disabled=false; btn.textContent='↗ Envoyer maintenant';
+  }
+}
+
+async function saveSchedule() {
+  const allRec = qs('em-recipients').value.split(',').map(s=>s.trim()).filter(Boolean);
+  showMsg('em-sched-msg','','');
+  try {
+    const rpt = customReports.find(r=>r.id===currentId);
+    const updated = { ...rpt, recipients: allRec, schedules: _cleanScheds(_emSchedList) };
+    const r = await fetch(`${API}/reports/${currentId}`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(updated)
+    }).then(r=>r.json());
+    if (r.error) throw new Error(r.error);
+    const idx = customReports.findIndex(r=>r.id===currentId);
+    if (idx>=0) customReports[idx] = r;
+    renderSidebar();
+    const active = _emSchedList.filter(s=>s.enabled).length;
+    qs('email-btn').className = active ? 'scheduled' : '';
+    showMsg('em-sched-msg','ok', active ? `${active} planification(s) activée(s)` : 'Planifications désactivées.');
+  } catch(e) {
+    showMsg('em-sched-msg','err',`Erreur : ${e.message}`);
+  }
+}
+
+// ── Builtin Email / Schedule ───────────────────────────────────────────────────
+
+async function openBuiltinEmailModal() {
+  // Load current config
+  const cfg = await fetch(`/api/commercial/builtin-schedules`).then(r=>r.json()).catch(()=>({}));
+  const titles = await fetch(`/api/commercial/builtin-titles`).then(r=>r.json()).catch(()=>({}));
+  qs('bem-lbl-ca').textContent  = titles.rapport_ca          || 'CA Global';
+  qs('bem-lbl-com').textContent = titles.rapport_commerciaux || 'CA par Commercial';
+  qs('bem-lbl-reg').textContent = titles.rapport_reglement   || 'Règlement clients';
+  _bemPageLabels = {
+    rapport_ca:          titles.rapport_ca          || 'CA Global',
+    rapport_commerciaux: titles.rapport_commerciaux || 'CA par Commercial',
+    rapport_reglement:   titles.rapport_reglement   || 'Règlement clients',
+  };
+
+  const pages = cfg.pages || ['rapport_ca','rapport_commerciaux'];
+  qs('bem-title').value    = cfg.title || '';
+  qs('bem-cb-ca').checked  = pages.includes('rapport_ca');
+  qs('bem-cb-com').checked = pages.includes('rapport_commerciaux');
+  qs('bem-cb-reg').checked = pages.includes('rapport_reglement');
+  qs('bem-periode').value  = cfg.periode || 'ytd';
+  qs('bem-mg').value       = cfg.mg || 'sf';
+  qs('bem-pr').value       = cfg.pr || 'PLVCRUMP';
+  qs('bem-format').value   = cfg.format || 'html';
+
+  // Connexions
+  const conns = dbConnections.length ? dbConnections : await fetch('/api/commercial/filters').then(r=>r.json()).then(d=>(dbConnections=d.connections||[],d.connections||[])).catch(()=>[]);
+  const dbsSection = qs('bem-dbs-section');
+  const dbsList    = qs('bem-dbs-list');
+  // Liste de connexions complète exposée aux cartes de planif (default + bases configurées)
+  _bemDbsAll = conns.length ? [dbDefaultEntry, ...conns] : [];
+  if (conns.length) {
+    const savedDbs  = (cfg.dbs || '').split(',').map(s=>s.trim()).filter(Boolean);
+    dbsList.innerHTML = _bemDbsAll.map(c => {
+      const chk = savedDbs.length ? savedDbs.includes(c.id) : c.id === 'default';
+      return `<label class="schedule-row"><input type="checkbox" name="bem-dbs" value="${escH(c.id)}"${chk?' checked':''}> ${escH(c.label)}</label>`;
+    }).join('');
+    dbsSection.style.display = '';
+  } else {
+    dbsSection.style.display = 'none';
+  }
+
+  // Migrate old single schedule → schedules array et seeder les options manquantes avec la config globale (rétrocompat)
+  const rawScheds = Array.isArray(cfg.schedules) ? cfg.schedules
+    : cfg.schedule?.cron ? [{ id:'s0', ...cfg.schedule }]
+    : [];
+  _bemSchedList = JSON.parse(JSON.stringify(rawScheds)).map(s => ({
+    title:   s.title   !== undefined ? s.title   : (cfg.title || ''),
+    pages:   Array.isArray(s.pages)  ? s.pages   : (cfg.pages  || ['rapport_ca','rapport_commerciaux']),
+    periode: s.periode !== undefined ? s.periode : (cfg.periode|| 'ytd'),
+    mg:      s.mg      !== undefined ? s.mg      : (cfg.mg     || 'sf'),
+    pr:      s.pr      !== undefined ? s.pr      : (cfg.pr     || 'PLVCRUMP'),
+    format:  s.format  !== undefined ? s.format  : (cfg.format || 'html'),
+    dbs:     s.dbs     !== undefined ? s.dbs     : (cfg.dbs    || ''),
+    ...s,
+  }));
+  _renderSchedCards('bem-sched-list', _bemSchedList, 'bem');
+
+  showMsg('bem-send-msg','','');
+  showMsg('bem-sched-msg','','');
+  qs('builtin-email-modal').classList.add('open');
+}
+function closeBuiltinEmailModal() { qs('builtin-email-modal').classList.remove('open'); }
+
+function bemGetConfig() {
+  const pages = [];
+  if (qs('bem-cb-ca').checked)  pages.push('rapport_ca');
+  if (qs('bem-cb-com').checked) pages.push('rapport_commerciaux');
+  if (qs('bem-cb-reg').checked) pages.push('rapport_reglement');
+  const dbsCbs = document.querySelectorAll('input[name="bem-dbs"]:checked');
+  const dbs = [...dbsCbs].map(cb => cb.value).filter(Boolean).join(',');
+  const title = qs('bem-title').value.trim();
+  const anneeSel = qs('bf-periode')?.value || '';
+  const annee = (anneeSel.startsWith('ytd_exe:') || anneeSel.startsWith('exe:')) ? anneeSel
+              : anneeSel.startsWith('cal:') ? anneeSel.slice(4)
+              : undefined;
+  return { pages, title: title || undefined, periode: qs('bem-periode').value, annee, mg: qs('bem-mg').value, pr: qs('bem-pr').value, format: qs('bem-format').value, dbs: dbs || undefined };
+}
+
+async function sendBuiltinNow() {
+  const btn = qs('bem-send-btn');
+  const recipients = qs('bem-recipients').value.trim();
+  if (!recipients) { showMsg('bem-send-msg','err','Veuillez saisir au moins un destinataire.'); return; }
+  btn.disabled=true; btn.textContent='…'; showMsg('bem-send-msg','','');
+  try {
+    const r = await fetch(`/api/commercial/builtin-send`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ...bemGetConfig(), recipients }),
+    }).then(r=>r.json());
+    if (r.error) throw new Error(r.error);
+    showMsg('bem-send-msg','ok',`Email envoyé à : ${r.sent.join(', ')}`);
+  } catch(e) {
+    showMsg('bem-send-msg','err',`Erreur : ${e.message}`);
+  } finally {
+    btn.disabled=false; btn.textContent='↗ Envoyer maintenant';
+  }
+}
+
+async function saveBuiltinSchedule() {
+  showMsg('bem-sched-msg','','');
+  try {
+    const cfg = { ...bemGetConfig(), schedules: _cleanScheds(_bemSchedList) };
+    const r = await fetch(`/api/commercial/builtin-schedules`, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cfg),
+    }).then(r=>r.json());
+    if (r.error) throw new Error(r.error);
+    const active = _bemSchedList.filter(s=>s.enabled).length;
+    qs('email-btn').className = active ? 'scheduled' : '';
+    showMsg('bem-sched-msg','ok', active ? `${active} planification(s) activée(s)` : 'Planifications désactivées.');
+  } catch(e) {
+    showMsg('bem-sched-msg','err',`Erreur : ${e.message}`);
+  }
+}
+
+// Cron helpers (bem-* prefix)
+function bemOnSchedChange() {
+  qs('bem-sched-fields').style.display = qs('bem-sched-enabled').checked ? '' : 'none';
+  if (qs('bem-sched-enabled').checked) bemUpdateCron();
+}
+function bemOnFreqChange() {
+  const freq = qs('bem-freq').value;
+  qs('bem-day-row').style.display    = freq==='weekly'  ? '' : 'none';
+  qs('bem-date-row').style.display   = freq==='monthly' ? '' : 'none';
+  qs('bem-custom-row').style.display = freq==='custom'  ? '' : 'none';
+  bemUpdateCron();
+}
+function bemBuildCron() {
+  const freq = qs('bem-freq').value, hour = qs('bem-hour').value;
+  if (freq==='custom')   return (qs('bem-cron-custom').value||'').trim();
+  if (freq==='daily')    return `0 ${hour} * * *`;
+  if (freq==='weekly')   return `0 ${hour} * * ${qs('bem-day').value}`;
+  if (freq==='monthly')  return `0 ${hour} ${qs('bem-monthday').value} * *`;
+  return '';
+}
+function bemUpdateCron() {
+  const freq=qs('bem-freq').value, h=qs('bem-hour').value;
+  const J=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+  let label='';
+  if (freq==='daily')   label=`Tous les jours à ${h}h00`;
+  else if(freq==='weekly')  label=`Chaque semaine le ${J[parseInt(qs('bem-day').value)]} à ${h}h00`;
+  else if(freq==='monthly') label=`Le ${qs('bem-monthday').value} de chaque mois à ${h}h00`;
+  qs('bem-cron-preview').textContent = label ? `→ ${label}  (cron: ${bemBuildCron()})` : '';
+}
+function bemUpdateCronPreview() {
+  qs('bem-cron-preview').textContent = `→ cron: ${qs('bem-cron-custom').value}`;
+}
+function bemLoadCron(cronStr) {
+  const parts = cronStr.split(' ');
+  if (parts.length!==5) {
+    qs('bem-freq').value='custom'; qs('bem-cron-custom').value=cronStr; bemOnFreqChange(); return;
+  }
+  const [,hour,dom,mon,dow] = parts;
+  qs('bem-hour').value = hour==='*'?'8':hour;
+  if (dom!=='*'&&mon==='*'&&dow==='*') { qs('bem-freq').value='monthly'; qs('bem-monthday').value=dom; }
+  else if (dow!=='*'&&dom==='*')       { qs('bem-freq').value='weekly';  qs('bem-day').value=dow; }
+  else if (dom==='*'&&dow==='*')       { qs('bem-freq').value='daily'; }
+  else                                  { qs('bem-freq').value='custom'; qs('bem-cron-custom').value=cronStr; }
+  bemOnFreqChange(); bemUpdateCron();
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+
+async function init() {
+  // Show logged-in user and conditional backoffice link
+  const u = AUTH.getUser();
+  if (u) {
+    const el = document.getElementById('header-user');
+    if (el) el.textContent = u.username + ' (' + (u.groupName || u.group) + ')';
+    const canBO = u.pages && (u.pages.includes('*') || u.pages.includes('backoffice'));
+    const lnk = document.getElementById('link-backoffice');
+    if (lnk) lnk.style.display = canBO ? '' : 'none';
+  }
+  // Filter dashboards/reports the user can access
+  const userDashboards = u ? (u.dashboards || []) : [];
+  const userReports    = u ? (u.reports || [])    : [];
+
+  try{const fd=await fetch('/api/commercial/filters').then(r=>r.json());exeYears=fd.exercices||[];calYears=fd.annees||[];commerciaux=fd.commerciaux||[];}catch{}
+  try{const sf=await fetch('/api/stock/filters').then(r=>r.json());depots=sf.depots||[];fournisseurs=sf.fournisseurs||[];}catch{}
+  // Seed PR/Marge defaults from server settings if not already saved locally
+  try {
+    const cfg = await fetch('/api/settings').then(r=>r.json());
+    if (cfg.calcul?.pr && !localStorage.getItem('tb_pr_default')) localStorage.setItem('tb_pr_default', cfg.calcul.pr);
+    if (cfg.calcul?.mg && !localStorage.getItem('tb_mg_default')) localStorage.setItem('tb_mg_default', cfg.calcul.mg);
+  } catch {}
+  sourceMeta       = await fetch(`${API}/sources`).then(r=>r.json()).catch(()=>[]);
+  const rawDash = await fetch(`${API}/dashboards`).then(r => { if (r.status===401) AUTH.logout('Session expirée'); return r.json(); }).catch(()=>[]);
+  const rawRep  = await fetch(`${API}/reports`).then(r => { if (r.status===401) AUTH.logout('Session expirée'); return r.json(); }).catch(()=>[]);
+  const allDashboards = Array.isArray(rawDash) ? rawDash : [];
+  const allReports    = Array.isArray(rawRep)  ? rawRep  : [];
+  // Filter by item-level groups visibility (item.groups = ['*'] or [groupId, ...])
+  const userGroup = u?.group || null;
+  function itemVisible(item) {
+    const g = item.groups;
+    if (!g || !g.length || g.includes('*')) return true;
+    return userGroup && g.includes(userGroup);
+  }
+  customDashboards = allDashboards.filter(itemVisible);
+  customReports    = allReports.filter(itemVisible);
+  renderSidebar();
+
+  const hash = location.hash.slice(1);
+  const allIds   = [...BUILTINS.map(b=>b.id), ...customDashboards.map(d=>d.id), ...customReports.map(r=>r.id)];
+  const favId    = getFav();
+  let target = null, targetType = null;
+  if (hash && allIds.includes(hash)) {
+    target = hash;
+    targetType = BUILTINS.find(b=>b.id===hash) ? 'builtin'
+               : customDashboards.find(d=>d.id===hash) ? 'dashboard' : 'report';
+  } else if (favId && allIds.includes(favId)) {
+    target = favId;
+    targetType = BUILTINS.find(b=>b.id===favId) ? 'builtin'
+               : customDashboards.find(d=>d.id===favId) ? 'dashboard' : 'report';
+  }
+  if (target) await openItem(target, targetType);
+}
+
+init();
+</script>
+</body>
+</html>

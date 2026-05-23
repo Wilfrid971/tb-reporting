@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paramètres — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("settings"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
+      --text:#e2e8f0; --muted:#8892a4; --blue:#2196F3; --green:#4CAF50;
+      --orange:#FF9800; --red:#F44336; --radius:10px; --gap:14px;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
+    header h1{font-size:1rem;font-weight:600}
+    .nav-link{color:var(--muted);font-size:.78rem;text-decoration:none;padding:4px 10px;border:1px solid var(--border);border-radius:6px}
+    .nav-link:hover{color:var(--text);border-color:var(--blue)}
+    .spacer{flex:1}
+
+    /* ── Tabs ── */
+    .tabs{display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 20px;background:var(--surface)}
+    .tab{background:none;border:none;color:var(--muted);padding:11px 20px;font-size:.85rem;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;font-family:inherit}
+    .tab.active{color:var(--text);border-bottom-color:var(--blue);font-weight:600}
+    .tab-icon{margin-right:6px}
+
+    .container{max-width:780px;margin:0 auto;padding:24px 20px}
+    .tab-panel{display:none}.tab-panel.active{display:block}
+
+    /* ── Cards ── */
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:var(--gap)}
+    .card-title{font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+
+    /* ── Form ── */
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .form-grid-3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px}
+    .form-full{grid-column:1/-1}
+    .form-group{display:flex;flex-direction:column;gap:5px}
+    .form-group label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+    .form-group input,.form-group select{
+      background:var(--surface2);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:8px 11px;font-size:.84rem;font-family:inherit;width:100%}
+    .form-group input:focus,.form-group select:focus{outline:none;border-color:var(--blue)}
+    .form-group .hint{font-size:.69rem;color:var(--muted)}
+    .toggle-row{display:flex;align-items:center;gap:8px;padding:8px 0}
+    .toggle-row label{font-size:.82rem;cursor:pointer;user-select:none}
+    .toggle-row input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--blue)}
+
+    /* ── SMTP presets ── */
+    .preset-grid{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+    .preset-btn{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
+      padding:8px 14px;cursor:pointer;font-size:.78rem;color:var(--muted);text-align:center;transition:all .15s}
+    .preset-btn:hover{border-color:var(--blue);color:var(--text)}
+    .preset-btn.active{background:rgba(33,150,243,.15);border-color:var(--blue);color:var(--blue);font-weight:600}
+    .preset-btn .p-name{font-weight:600;font-size:.8rem}
+    .preset-btn .p-info{font-size:.68rem;margin-top:2px;opacity:.7}
+
+    /* ── Boutons ── */
+    .btn{border:none;border-radius:6px;padding:8px 16px;font-size:.82rem;cursor:pointer;font-family:inherit;font-weight:500}
+    .btn-primary{background:var(--blue);color:#fff}.btn-primary:hover{background:#1976D2}
+    .btn-success{background:var(--green);color:#fff}
+    .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border)}
+    .btn-ghost:hover{color:var(--text);border-color:var(--blue)}
+    .btn:disabled{opacity:.4;cursor:not-allowed}
+    .btn-row{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+
+    /* ── Status badge ── */
+    .status{font-size:.78rem;padding:5px 10px;border-radius:6px;display:inline-flex;align-items:center;gap:6px}
+    .status.ok{background:#1b5e20;color:#a5d6a7}
+    .status.err{background:#b71c1c;color:#ef9a9a}
+    .status.info{background:#0d1b3e;color:#90caf9}
+
+    /* ── AS400 notice ── */
+    .notice{background:#1a1a00;border:1px solid #555500;border-radius:8px;padding:12px 16px;font-size:.8rem;color:#cccc88;margin-bottom:var(--gap)}
+    .notice strong{color:#ffff99}
+
+    #toast{position:fixed;bottom:20px;right:20px;background:#323232;color:#fff;padding:10px 18px;border-radius:8px;font-size:.82rem;display:none;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,.3)}
+
+    /* ── Gestion des droits ── */
+    .droits-layout{display:grid;grid-template-columns:260px 1fr;gap:var(--gap);align-items:start}
+    .droits-col{display:flex;flex-direction:column;gap:var(--gap)}
+    .droits-list{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+    .droits-list-hd{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border);background:var(--surface2);font-size:.79rem;font-weight:600}
+    .dr-item{padding:9px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;border-left:3px solid transparent}
+    .dr-item:last-child{border-bottom:none}
+    .dr-item:hover{background:var(--surface2)}
+    .dr-item.active{background:rgba(33,150,243,.1);border-left-color:var(--blue)}
+    .dr-item-name{font-size:.82rem;font-weight:500}
+    .dr-item-meta{font-size:.71rem;color:var(--muted);margin-top:1px}
+    .droits-editor{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px}
+    .droits-placeholder{display:flex;align-items:center;justify-content:center;min-height:200px;color:var(--muted);font-size:.83rem;font-style:italic}
+    .dim-chip{padding:5px 12px;border-radius:20px;font-size:.76rem;cursor:pointer;user-select:none;border:1px solid var(--border);color:var(--muted);background:var(--surface2)}
+    .dim-chip.selected{background:rgba(33,150,243,.15);border-color:var(--blue);color:var(--blue)}
+
+    /* ── Thèmes ── */
+    .theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+    .theme-card{background:var(--surface2);border:2px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;transition:all .15s;text-align:center}
+    .theme-card:hover{border-color:var(--blue);transform:translateY(-1px)}
+    .theme-card.active{border-color:var(--blue);box-shadow:0 0 0 3px rgba(33,150,243,.2)}
+    .theme-card.active .theme-check{opacity:1}
+    .theme-preview{display:flex;gap:4px;justify-content:center;margin-bottom:10px;height:28px;align-items:flex-end}
+    .theme-swatch{width:18px;border-radius:4px}
+    .theme-name{font-size:.8rem;font-weight:600;margin-bottom:2px}
+    .theme-icon{font-size:1.2rem;margin-bottom:6px}
+    .theme-check{font-size:.75rem;color:var(--blue);opacity:0;margin-top:4px}
+
+    /* ── Format date ── */
+    .datefmt-grid{display:flex;flex-wrap:wrap;gap:10px}
+    .datefmt-card{background:var(--surface2);border:2px solid var(--border);border-radius:8px;padding:10px 16px;cursor:pointer;transition:all .15s;min-width:130px}
+    .datefmt-card:hover{border-color:var(--blue)}
+    .datefmt-card.active{border-color:var(--blue);background:rgba(33,150,243,.08)}
+    .datefmt-label{font-size:.78rem;font-weight:600;margin-bottom:3px}
+    .datefmt-exemple{font-size:.72rem;color:var(--muted)}
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>⚙️ Paramètres</h1>
+  <a class="nav-link" href="/tb-reporting.html">← TB Reporting</a>
+  <a class="nav-link" href="/dashboard.html">📊 Tableaux de bord</a>
+  <a class="nav-link" href="/dashboard.html">📋 Rapports</a>
+  <a class="nav-link" href="/backoffice.html">⚙️ Backoffice</a>
+  <div class="spacer"></div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('sqlserver',this)"><span class="tab-icon">🗄</span>SQL Server</button>
+  <button class="tab" onclick="switchTab('as400',this)"><span class="tab-icon">🖥</span>AS400 / DB2</button>
+  <button class="tab" onclick="switchTab('email',this)"><span class="tab-icon">✉️</span>Email</button>
+  <button class="tab" onclick="switchTab('connexions',this)"><span class="tab-icon">🔗</span>Connexions</button>
+  <button class="tab" onclick="switchTab('apparence',this)"><span class="tab-icon">🎨</span>Apparence</button>
+  <button class="tab" onclick="switchTab('droits',this)"><span class="tab-icon">🔐</span>Gestion des droits</button>
+</div>
+
+<div class="container">
+
+  <!-- ══ SQL Server ══ -->
+  <div class="tab-panel active" id="panel-sqlserver">
+    <div class="card">
+      <div class="card-title">Connexion SQL Server</div>
+      <div class="form-grid-3" style="margin-bottom:14px">
+        <div class="form-group">
+          <label>Serveur (nom\instance ou IP)</label>
+          <input id="db-server" placeholder="NUC-WIL\WAVESOFT">
+        </div>
+        <div class="form-group">
+          <label>Base de données</label>
+          <input id="db-database" placeholder="MABASE">
+        </div>
+        <div class="form-group">
+          <label>Port</label>
+          <input id="db-port" type="number" placeholder="1433">
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="db-trusted">
+        <label for="db-trusted">Authentification Windows (trusted connection)</label>
+      </div>
+      <div id="sql-auth-fields" class="form-grid" style="margin-top:10px">
+        <div class="form-group">
+          <label>Utilisateur SQL</label>
+          <input id="db-user" placeholder="sa">
+        </div>
+        <div class="form-group">
+          <label>Mot de passe SQL</label>
+          <input id="db-password" type="password" placeholder="••••••••">
+        </div>
+      </div>
+      <div class="toggle-row" style="margin-top:10px">
+        <input type="checkbox" id="db-encrypt">
+        <label for="db-encrypt">Chiffrement TLS (encrypt)</label>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="db-trustcert" checked>
+        <label for="db-trustcert">Faire confiance au certificat serveur</label>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveDB()">💾 Enregistrer</button>
+      <button class="btn btn-ghost" onclick="testDB()">🔌 Tester la connexion</button>
+      <span id="db-status"></span>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <div class="card-title">Bases autorisées au login <span style="font-size:.72rem;color:var(--muted);font-weight:400">(avec alias optionnel)</span></div>
+      <div style="font-size:.78rem;color:var(--muted);margin-bottom:10px">
+        Coche les bases proposées sur la page de connexion. L'alias remplace le libellé affiché (sinon « TIRRS1 » est utilisé, sinon le nom de base). <strong>Vide = toutes les bases exposées.</strong>
+      </div>
+      <div id="login-dbs-list" style="display:flex;flex-direction:column;gap:6px;max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:10px;background:var(--surface2)">
+        <div style="color:var(--muted);font-size:.78rem">Chargement des bases disponibles…</div>
+      </div>
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn btn-primary" onclick="saveLoginDatabases()">💾 Enregistrer</button>
+        <button class="btn btn-ghost" onclick="reloadLoginDatabases()">🔄 Recharger la liste</button>
+        <span id="login-dbs-status"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ AS400 ══ -->
+  <div class="tab-panel" id="panel-as400">
+    <div class="notice">
+      <strong>Prérequis AS400 :</strong> la connectivité IBM DB2/AS400 nécessite l'installation du pilote
+      <strong>IBM i Access ODBC Driver</strong> (ou IBM DB2 Connect) sur le serveur Windows,
+      ainsi que le package Node.js <code>ibm_db</code> ou <code>odbc</code>.
+      Les paramètres ci-dessous sont sauvegardés pour une intégration future.
+    </div>
+    <div class="card">
+      <div class="card-title">Connexion AS400 / IBM DB2</div>
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="form-group">
+          <label>Hôte AS400 (IP ou nom)</label>
+          <input id="as-host" placeholder="192.168.1.10">
+        </div>
+        <div class="form-group">
+          <label>Port</label>
+          <input id="as-port" type="number" placeholder="446">
+        </div>
+      </div>
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="form-group">
+          <label>Bibliothèque / Répertoire des données</label>
+          <input id="as-database" placeholder="MALIB ou *LIBL">
+          <div class="hint">Bibliothèque AS400 ou liste de bibliothèques</div>
+        </div>
+        <div class="form-group">
+          <label>Pilote ODBC</label>
+          <input id="as-driver" placeholder="IBM i Access ODBC Driver">
+        </div>
+      </div>
+      <div class="form-grid" style="margin-bottom:10px">
+        <div class="form-group">
+          <label>Utilisateur AS400</label>
+          <input id="as-user" placeholder="QSECOFR">
+        </div>
+        <div class="form-group">
+          <label>Mot de passe AS400</label>
+          <input id="as-password" type="password" placeholder="••••••••">
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="as-ssl">
+        <label for="as-ssl">Connexion SSL/TLS</label>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveAS400()">💾 Enregistrer</button>
+      <span id="as400-status" class="status info" style="display:none"></span>
+    </div>
+  </div>
+
+  <!-- ══ Email ══ -->
+  <div class="tab-panel" id="panel-email">
+    <div class="card">
+      <div class="card-title">Modèle de serveur SMTP</div>
+      <div class="preset-grid" id="smtp-presets"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Configuration SMTP</div>
+      <div class="form-grid-3" style="margin-bottom:14px">
+        <div class="form-group">
+          <label>Serveur SMTP (host)</label>
+          <input id="smtp-host" placeholder="smtp.gmail.com">
+        </div>
+        <div class="form-group">
+          <label>Port</label>
+          <input id="smtp-port" type="number" placeholder="587">
+        </div>
+        <div class="form-group" style="justify-content:flex-end;padding-bottom:2px">
+          <label>&nbsp;</label>
+          <div class="toggle-row" style="padding:9px 0 0">
+            <input type="checkbox" id="smtp-secure">
+            <label for="smtp-secure">SSL/TLS (port 465)</label>
+          </div>
+        </div>
+      </div>
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="form-group">
+          <label>Adresse email (identifiant SMTP)</label>
+          <input id="smtp-user" type="email" placeholder="monemail@gmail.com">
+        </div>
+        <div class="form-group">
+          <label>Mot de passe / App password</label>
+          <input id="smtp-pass" type="password" placeholder="••••••••">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Expéditeur affiché (From)</label>
+        <input id="smtp-from" placeholder="TB Reporting <monemail@gmail.com>">
+        <div class="hint">Laisser vide pour utiliser l'adresse email ci-dessus</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Test d'envoi</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Destinataire du test</label>
+          <input id="smtp-test-to" type="email" placeholder="destinataire@domaine.com">
+        </div>
+        <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+          <button class="btn btn-success" onclick="testEmail()">✉️ Envoyer email de test</button>
+        </div>
+      </div>
+      <div style="margin-top:10px"><span id="smtp-test-status"></span></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveEmail()">💾 Enregistrer</button>
+      <span id="email-save-status"></span>
+    </div>
+  </div>
+
+
+  <!-- ══ Connexions multi-serveurs ══ -->
+  <div class="tab-panel" id="panel-connexions">
+    <div class="card">
+      <div class="card-title">Connexions supplémentaires</div>
+      <p style="font-size:.8rem;color:var(--muted);margin-bottom:14px">
+        Ajoutez ici des connexions vers d'autres serveurs SQL Server (filiales, sites…).
+        Elles seront disponibles dans les tableaux de bord pour consolider les données.
+      </p>
+      <div id="conns-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px"></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="addConn()">＋ Ajouter une connexion</button>
+      </div>
+    </div>
+
+    <!-- Formulaire d'édition (inline) -->
+    <div class="card" id="conn-form" style="display:none">
+      <div class="card-title" id="conn-form-title">Nouvelle connexion</div>
+      <div class="form-group" style="margin-bottom:10px">
+        <label>Libellé (nom affiché)</label>
+        <input id="cf-label" placeholder="Ex. Filiale Nord">
+      </div>
+      <div class="form-grid-3" style="margin-bottom:10px">
+        <div class="form-group">
+          <label>Serveur (nom\instance ou IP)</label>
+          <input id="cf-server" placeholder="192.168.1.10\WAVESOFT">
+        </div>
+        <div class="form-group">
+          <label>Base de données</label>
+          <input id="cf-database" placeholder="MABASE">
+        </div>
+        <div class="form-group">
+          <label>Port</label>
+          <input id="cf-port" type="number" placeholder="1433">
+        </div>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="cf-trusted" onchange="toggleCfAuth()">
+        <label for="cf-trusted">Authentification Windows</label>
+      </div>
+      <div id="cf-auth-fields" class="form-grid" style="margin-top:10px">
+        <div class="form-group">
+          <label>Utilisateur SQL</label>
+          <input id="cf-user" placeholder="sa">
+        </div>
+        <div class="form-group">
+          <label>Mot de passe</label>
+          <input id="cf-password" type="password" placeholder="••••••••">
+        </div>
+      </div>
+      <div class="toggle-row" style="margin-top:8px">
+        <input type="checkbox" id="cf-trustcert" checked>
+        <label for="cf-trustcert">Faire confiance au certificat</label>
+      </div>
+      <input type="hidden" id="cf-id">
+      <div class="btn-row" style="margin-top:12px">
+        <button class="btn btn-primary" onclick="saveConn()">💾 Enregistrer</button>
+        <button class="btn btn-ghost" onclick="testConn()">🔌 Tester</button>
+        <button class="btn btn-ghost" onclick="cancelConn()">✕ Annuler</button>
+        <span id="cf-status"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Apparence ══ -->
+  <div class="tab-panel" id="panel-apparence">
+    <div class="card">
+      <div class="card-title">Thème d'affichage</div>
+      <div class="theme-grid" id="theme-grid"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Format des dates</div>
+      <div class="datefmt-grid" id="datefmt-grid"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Calcul de la marge — valeurs par défaut</div>
+      <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap">
+        <div class="form-group" style="min-width:180px">
+          <label>Prix de revient par défaut</label>
+          <select id="set-pr-default">
+            <option value="PLVCRUMP">CRUMP</option>
+            <option value="PLVPRMP">PRMP</option>
+            <option value="PLVLASTPR">Dernier PR</option>
+          </select>
+        </div>
+        <div class="form-group" style="min-width:160px">
+          <label>Type de marge par défaut</label>
+          <select id="set-mg-default">
+            <option value="sf">Marge SF (sans frais)</option>
+            <option value="af">Marge AF (avec frais)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Périodes — nombre d'éléments dans les sélecteurs</div>
+      <div style="display:flex;gap:20px;margin-top:12px;flex-wrap:wrap">
+        <div class="form-group" style="min-width:200px">
+          <label>Nombre d'exercices fiscaux affichés</label>
+          <input id="set-nb-exercices" type="number" min="1" max="50" step="1" value="5">
+        </div>
+        <div class="form-group" style="min-width:200px">
+          <label>Nombre d'années calendaires affichées</label>
+          <input id="set-nb-annees-cal" type="number" min="1" max="50" step="1" value="5">
+        </div>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:6px">
+        S'applique aux sélecteurs « YTD exercice », « Exercices fiscaux » et « Années calendaires » dans tous les tableaux de bord et rapports.
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveApparence()">💾 Enregistrer</button>
+      <span id="theme-status"></span>
+    </div>
+  </div>
+
+
+  <!-- ══ Gestion des droits ══ -->
+  <div class="tab-panel" id="panel-droits">
+    <div class="droits-layout">
+      <!-- Colonne gauche : listes -->
+      <div class="droits-col">
+        <div class="droits-list">
+          <div class="droits-list-hd">
+            <span>Utilisateurs</span>
+            <button class="btn btn-primary" style="padding:3px 10px;font-size:.75rem" onclick="drOpenUser(null)">+ Nouveau</button>
+          </div>
+          <div id="dr-user-list"><div class="dr-item" style="color:var(--muted);font-size:.78rem;cursor:default">Chargement…</div></div>
+        </div>
+        <div class="droits-list">
+          <div class="droits-list-hd">
+            <span>Groupes</span>
+            <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem;border:1px solid var(--border)" onclick="drOpenGroup(null)">+ Groupe</button>
+          </div>
+          <div id="dr-group-list"><div class="dr-item" style="color:var(--muted);font-size:.78rem;cursor:default">Chargement…</div></div>
+        </div>
+      </div>
+
+      <!-- Colonne droite : éditeur -->
+      <div class="droits-editor" id="dr-editor">
+        <div class="droits-placeholder" id="dr-placeholder">Sélectionnez un utilisateur ou un groupe</div>
+
+        <!-- Éditeur utilisateur -->
+        <div id="dr-user-form" style="display:none">
+          <h2 id="dr-u-title" style="font-size:1rem;margin-bottom:18px">Utilisateur</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Identifiant</label>
+              <input id="dr-u-username" type="text" placeholder="prenom.nom">
+            </div>
+            <div class="form-group">
+              <label>Mot de passe <span style="font-size:.7rem;color:var(--muted)">(vide = inchangé)</span></label>
+              <input id="dr-u-password" type="password" placeholder="••••••••">
+            </div>
+            <div class="form-group">
+              <label>Groupe</label>
+              <select id="dr-u-group"></select>
+            </div>
+            <div class="form-group" style="justify-content:flex-end">
+              <div class="toggle-row">
+                <input id="dr-u-active" type="checkbox" checked>
+                <label for="dr-u-active">Compte actif</label>
+              </div>
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top:20px">
+            <button class="btn btn-primary" onclick="drSaveUser()">💾 Enregistrer</button>
+            <button id="dr-u-delete" class="btn" style="background:var(--red);color:#fff;display:none" onclick="drDeleteUser()">Supprimer</button>
+            <button class="btn btn-ghost" onclick="drShowPlaceholder()">Annuler</button>
+          </div>
+        </div>
+
+        <!-- Éditeur groupe -->
+        <div id="dr-group-form" style="display:none">
+          <h2 id="dr-g-title" style="font-size:1rem;margin-bottom:18px">Groupe</h2>
+          <div class="form-group" style="margin-bottom:14px">
+            <label>Nom du groupe</label>
+            <input id="dr-g-name" type="text" placeholder="ex: Comptabilité">
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label>Pages autorisées <span style="font-size:.7rem;color:var(--muted)">(* = toutes)</span></label>
+            <div id="dr-g-pages" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label>Tableaux de bord <span style="font-size:.7rem;color:var(--muted)">(* = tous)</span></label>
+            <div id="dr-g-dashboards" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label>Rapports <span style="font-size:.7rem;color:var(--muted)">(* = tous)</span></label>
+            <div id="dr-g-reports" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+          </div>
+          <div class="btn-row" style="margin-top:20px">
+            <button class="btn btn-primary" onclick="drSaveGroup()">💾 Enregistrer</button>
+            <button id="dr-g-delete" class="btn" style="background:var(--red);color:#fff;display:none" onclick="drDeleteGroup()">Supprimer</button>
+            <button class="btn btn-ghost" onclick="drShowPlaceholder()">Annuler</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = '/api/settings';
+
+const PRESETS = [
+  { id:'gmail',      name:'Gmail',       host:'smtp.gmail.com',          port:587, secure:false, hint:'App password requis' },
+  { id:'o365',       name:'Office 365',  host:'smtp.office365.com',      port:587, secure:false, hint:'Microsoft 365' },
+  { id:'ovh',        name:'OVH',         host:'ssl0.ovh.net',            port:465, secure:true,  hint:'Hébergement OVH' },
+  { id:'ionos',      name:'Ionos / 1&1', host:'smtp.ionos.fr',           port:587, secure:false, hint:'Hosting Ionos' },
+  { id:'infomaniak', name:'Infomaniak',  host:'mail.infomaniak.com',     port:587, secure:false, hint:'CH / FR' },
+  { id:'yahoo',      name:'Yahoo',       host:'smtp.mail.yahoo.com',     port:587, secure:false, hint:'App password requis' },
+  { id:'orange',     name:'Orange',      host:'smtp.orange.fr',          port:587, secure:false, hint:'Compte Orange' },
+  { id:'free',       name:'Free',        host:'smtp.free.fr',            port:587, secure:false, hint:'Compte Free' },
+  { id:'custom',     name:'Personnalisé',host:'',                        port:587, secure:false, hint:'Config manuelle' },
+];
+
+let settings = {};
+let activePreset = 'custom';
+
+function qs(id)   { return document.getElementById(id); }
+function escH(s)  { const d=document.createElement('div');d.textContent=String(s??'');return d.innerHTML; }
+function toast(msg, type='info') {
+  const t=qs('toast'); t.textContent=msg; t.style.display='block';
+  t.style.background = type==='error'?'#b71c1c':type==='success'?'#1b5e20':'#323232';
+  clearTimeout(t._t); t._t=setTimeout(()=>t.style.display='none',3000);
+}
+function setStatus(id, ok, msg) {
+  const el=qs(id);
+  el.className=`status ${ok?'ok':'err'}`;
+  el.style.display='inline-flex';
+  el.textContent=(ok?'✓ ':' ✗ ')+msg;
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  qs(`panel-${name}`).classList.add('active');
+  if (name === 'connexions') loadConns();
+  if (name === 'droits') loadUsersAndGroups();
+}
+
+// ── SMTP presets ──────────────────────────────────────────────────────────────
+function renderPresets(activeId) {
+  qs('smtp-presets').innerHTML = PRESETS.map(p => `
+    <div class="preset-btn${p.id===activeId?' active':''}" onclick="applyPreset('${p.id}')">
+      <div class="p-name">${escH(p.name)}</div>
+      <div class="p-info">${escH(p.id==='custom'?'Manuel':p.host)}</div>
+    </div>`).join('');
+}
+
+function applyPreset(id) {
+  const p = PRESETS.find(x=>x.id===id);
+  if (!p) return;
+  activePreset = id;
+  if (p.host) qs('smtp-host').value = p.host;
+  qs('smtp-port').value   = p.port;
+  qs('smtp-secure').checked = p.secure;
+  renderPresets(id);
+}
+
+// ── Thèmes ────────────────────────────────────────────────────────────────────
+let activeTheme     = localStorage.getItem('tb_theme') || 'dark';
+let activeDateFormat = localStorage.getItem('tb_date_format') || 'DD/MM/YYYY';
+
+function renderThemes() {
+  const SWATCHES = ['--bg','--surface','--blue'];
+  qs('theme-grid').innerHTML = Object.entries(TB_THEMES).map(([id, t]) => {
+    const swatches = SWATCHES.map(v =>
+      `<div class="theme-swatch" style="background:${t[v]};height:${v==='--blue'?28:v==='--surface'?22:16}px"></div>`
+    ).join('');
+    const isActive = id === activeTheme;
+    return `<div class="theme-card${isActive?' active':''}" id="tc-${id}" onclick="selectTheme('${id}')">
+      <div class="theme-icon">${t.icon}</div>
+      <div class="theme-preview">${swatches}</div>
+      <div class="theme-name">${t.label}</div>
+      <div class="theme-check">✓ Actif</div>
+    </div>`;
+  }).join('');
+}
+
+function selectTheme(name) {
+  activeTheme = name;
+  applyTheme(name);
+  renderThemes();
+}
+
+function renderDateFormats() {
+  qs('datefmt-grid').innerHTML = Object.entries(TB_DATE_FORMATS).map(([fmt, info]) => `
+    <div class="datefmt-card${fmt === activeDateFormat ? ' active' : ''}" onclick="selectDateFormat('${fmt}')">
+      <div class="datefmt-label">${info.label}</div>
+      <div class="datefmt-exemple">${info.exemple}</div>
+    </div>`).join('');
+}
+
+function selectDateFormat(fmt) {
+  activeDateFormat = fmt;
+  setDateFormat(fmt);
+  renderDateFormats();
+}
+
+async function saveApparence() {
+  applyTheme(activeTheme);
+  setDateFormat(activeDateFormat);
+  const prDefault = qs('set-pr-default')?.value || 'PLVCRUMP';
+  const mgDefault = qs('set-mg-default')?.value || 'sf';
+  const clamp = (v, lo, hi, def) => {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n >= lo && n <= hi ? n : def;
+  };
+  const nbExercices = clamp(qs('set-nb-exercices')?.value, 1, 50, 5);
+  const nbAnneesCal = clamp(qs('set-nb-annees-cal')?.value, 1, 50, 5);
+  // Persist calcul defaults in localStorage so pages pick them up immediately
+  localStorage.setItem('tb_pr_default', prDefault);
+  localStorage.setItem('tb_mg_default', mgDefault);
+  try {
+    await fetch(API, {method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        theme: { name: activeTheme },
+        app: { dateFormat: activeDateFormat },
+        calcul: { pr: prDefault, mg: mgDefault },
+        periodes: { nbExercices, nbAnneesCal },
+      })
+    });
+    setStatus('theme-status', true, 'Paramètres enregistrés');
+    toast('Apparence enregistrée', 'success');
+  } catch(e) { toast('Erreur : '+e.message, 'error'); }
+}
+
+// ── Chargement initial ────────────────────────────────────────────────────────
+async function load() {
+  settings = await fetch(API).then(r=>r.json());
+
+  // SQL Server
+  const db = settings.db || {};
+  qs('db-server').value   = db.server   || '';
+  qs('db-database').value = db.database || '';
+  qs('db-port').value     = db.port     || 1433;
+  qs('db-trusted').checked = db.trusted || false;
+  qs('db-user').value     = db.user     || '';
+  qs('db-password').value = db.password || '';
+  qs('db-encrypt').checked   = db.encrypt   || false;
+  qs('db-trustcert').checked = db.trustCert !== false;
+  toggleAuthFields();
+
+  // AS400
+  const as = settings.as400 || {};
+  qs('as-host').value     = as.host     || '';
+  qs('as-port').value     = as.port     || 446;
+  qs('as-database').value = as.database || '';
+  qs('as-driver').value   = as.driver   || 'IBM i Access ODBC Driver';
+  qs('as-user').value     = as.user     || '';
+  qs('as-password').value = as.password || '';
+  qs('as-ssl').checked    = as.ssl      || false;
+
+  // SMTP
+  const smtp = settings.smtp || {};
+  activePreset = smtp.preset || 'custom';
+  qs('smtp-host').value   = smtp.host   || '';
+  qs('smtp-port').value   = smtp.port   || 587;
+  qs('smtp-secure').checked = smtp.secure || false;
+  qs('smtp-user').value   = smtp.user   || '';
+  qs('smtp-pass').value   = smtp.password || '';
+  qs('smtp-from').value   = smtp.from   || '';
+  qs('smtp-test-to').value = smtp.user  || '';
+  renderPresets(activePreset);
+
+  // Thème
+  activeTheme = settings.theme?.name || localStorage.getItem('tb_theme') || 'dark';
+  renderThemes();
+
+  // Format date
+  activeDateFormat = settings.app?.dateFormat || localStorage.getItem('tb_date_format') || 'DD/MM/YYYY';
+  renderDateFormats();
+
+  // Calcul par défaut
+  const calcul = settings.calcul || {};
+  if (qs('set-pr-default')) qs('set-pr-default').value = calcul.pr || localStorage.getItem('tb_pr_default') || 'PLVCRUMP';
+  if (qs('set-mg-default')) qs('set-mg-default').value = calcul.mg || localStorage.getItem('tb_mg_default') || 'sf';
+
+  // Périodes (nombre d'éléments dans les sélecteurs)
+  const periodes = settings.periodes || {};
+  if (qs('set-nb-exercices'))  qs('set-nb-exercices').value  = periodes.nbExercices || 5;
+  if (qs('set-nb-annees-cal')) qs('set-nb-annees-cal').value = periodes.nbAnneesCal || 5;
+
+  // Bases autorisées au login — on charge la liste en arrière-plan
+  reloadLoginDatabases();
+}
+
+function toggleAuthFields() {
+  qs('sql-auth-fields').style.display = qs('db-trusted').checked ? 'none' : 'grid';
+}
+qs('db-trusted').addEventListener('change', toggleAuthFields);
+
+// ── Sauvegarde SQL Server ─────────────────────────────────────────────────────
+async function saveDB() {
+  const body = {
+    db: {
+      server:   qs('db-server').value.trim(),
+      database: qs('db-database').value.trim(),
+      port:     parseInt(qs('db-port').value) || 1433,
+      trusted:  qs('db-trusted').checked,
+      user:     qs('db-user').value.trim(),
+      password: qs('db-password').value || '***',
+      encrypt:  qs('db-encrypt').checked,
+      trustCert:qs('db-trustcert').checked,
+    }
+  };
+  try {
+    await fetch(API, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast('Paramètres SQL Server enregistrés','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+}
+
+// ── Bases autorisées au login ─────────────────────────────────────────────────
+async function reloadLoginDatabases() {
+  const wrap = qs('login-dbs-list');
+  wrap.innerHTML = '<div style="color:var(--muted);font-size:.78rem">Chargement des bases disponibles…</div>';
+  const current = (settings.loginDatabases || []);
+  const map = new Map(current.map(e => [e.name, e.alias || '']));
+  try {
+    const dbs = await fetch(API + '/databases-available').then(r => {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+    if (!dbs.length) {
+      wrap.innerHTML = '<div style="color:var(--muted);font-size:.78rem">Aucune base détectée — vérifie la connexion SQL Server.</div>';
+      return;
+    }
+    wrap.innerHTML = dbs.map(db => {
+      const checked = map.has(db.name);
+      const alias = map.get(db.name) || '';
+      const autoLbl = db.label && db.label !== db.name ? ` <span style="font-size:.7rem;color:var(--muted)">(${escapeHtml(db.label)})</span>` : '';
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid var(--border)">
+          <label style="display:flex;align-items:center;gap:8px;flex:0 0 auto;min-width:240px;cursor:pointer">
+            <input type="checkbox" class="ldb-check" data-name="${escapeHtml(db.name)}"${checked?' checked':''}>
+            <span style="font-family:monospace">${escapeHtml(db.name)}</span>${autoLbl}
+          </label>
+          <input type="text" class="ldb-alias" data-name="${escapeHtml(db.name)}" placeholder="Alias affiché au login (optionnel)" value="${escapeHtml(alias)}" style="flex:1;padding:4px 8px">
+        </div>`;
+    }).join('');
+  } catch (e) {
+    wrap.innerHTML = `<div style="color:var(--red,#f87171);font-size:.78rem">Erreur : ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function saveLoginDatabases() {
+  const wrap = qs('login-dbs-list');
+  const rows = [...wrap.querySelectorAll('.ldb-check')];
+  const entries = rows
+    .filter(cb => cb.checked)
+    .map(cb => {
+      const name = cb.dataset.name;
+      const alias = wrap.querySelector(`.ldb-alias[data-name="${CSS.escape(name)}"]`)?.value?.trim() || '';
+      return { name, alias };
+    });
+  try {
+    const r = await fetch(API, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ loginDatabases: entries })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    settings = data.settings || settings;
+    setStatus('login-dbs-status', true, entries.length
+      ? `${entries.length} base${entries.length > 1 ? 's' : ''} exposée${entries.length > 1 ? 's' : ''}`
+      : 'Aucune base cochée → toutes seront exposées');
+    toast('Bases autorisées enregistrées', 'success');
+  } catch (e) {
+    setStatus('login-dbs-status', false, e.message);
+    toast('Erreur : ' + e.message, 'error');
+  }
+}
+
+async function testDB() {
+  const dbCfg = {
+    server:   qs('db-server').value.trim(),
+    database: qs('db-database').value.trim(),
+    port:     parseInt(qs('db-port').value)||1433,
+    trusted:  qs('db-trusted').checked,
+    user:     qs('db-user').value.trim(),
+    password: qs('db-password').value || '***',
+    encrypt:  qs('db-encrypt').checked,
+    trustCert:qs('db-trustcert').checked,
+  };
+  qs('db-status').className='status info';
+  qs('db-status').style.display='inline-flex';
+  qs('db-status').textContent='⏳ Test en cours…';
+  try {
+    const res = await fetch(`${API}/test-db`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({db:dbCfg})}).then(r=>r.json());
+    if (res.ok) setStatus('db-status',true,`${res.server} / ${res.database}`);
+    else setStatus('db-status',false,res.error);
+  } catch(e) { setStatus('db-status',false,e.message); }
+}
+
+// ── Sauvegarde AS400 ──────────────────────────────────────────────────────────
+async function saveAS400() {
+  const body = {
+    as400: {
+      host:     qs('as-host').value.trim(),
+      port:     parseInt(qs('as-port').value)||446,
+      database: qs('as-database').value.trim(),
+      driver:   qs('as-driver').value.trim(),
+      user:     qs('as-user').value.trim(),
+      password: qs('as-password').value || '***',
+      ssl:      qs('as-ssl').checked,
+    }
+  };
+  try {
+    await fetch(API,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const st=qs('as400-status');
+    st.style.display='inline-flex'; st.className='status ok'; st.textContent='✓ Paramètres AS400 enregistrés';
+    toast('Paramètres AS400 enregistrés','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+}
+
+// ── Sauvegarde Email ──────────────────────────────────────────────────────────
+async function saveEmail() {
+  const body = {
+    smtp: {
+      preset:   activePreset,
+      host:     qs('smtp-host').value.trim(),
+      port:     parseInt(qs('smtp-port').value)||587,
+      secure:   qs('smtp-secure').checked,
+      user:     qs('smtp-user').value.trim(),
+      password: qs('smtp-pass').value || '***',
+      from:     qs('smtp-from').value.trim(),
+    }
+  };
+  try {
+    await fetch(API,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    setStatus('email-save-status',true,'Enregistré');
+    toast('Configuration email enregistrée','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+}
+
+async function testEmail() {
+  const smtpCfg = {
+    host:     qs('smtp-host').value.trim(),
+    port:     parseInt(qs('smtp-port').value)||587,
+    secure:   qs('smtp-secure').checked,
+    user:     qs('smtp-user').value.trim(),
+    password: qs('smtp-pass').value || '***',
+    from:     qs('smtp-from').value.trim(),
+  };
+  const to = qs('smtp-test-to').value.trim() || smtpCfg.user;
+  if (!to) { toast('Renseignez le destinataire','error'); return; }
+  const st=qs('smtp-test-status');
+  st.className='status info'; st.style.display='inline-flex'; st.textContent='⏳ Envoi en cours…';
+  try {
+    const res = await fetch(`${API}/test-email`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({smtp:smtpCfg,to})}).then(r=>r.json());
+    if (res.ok) setStatus('smtp-test-status',true,`Email envoyé à ${res.to}`);
+    else setStatus('smtp-test-status',false,res.error);
+  } catch(e) { setStatus('smtp-test-status',false,e.message); }
+}
+
+load();
+
+// ── Connexions multi-serveurs ─────────────────────────────────────────────────
+const CONNS_API = '/api/settings/connections';
+
+async function loadConns() {
+  const conns = await fetch(CONNS_API).then(r=>r.json()).catch(()=>[]);
+  const list = qs('conns-list');
+  if (!conns.length) {
+    list.innerHTML = '<div style="font-size:.8rem;color:var(--muted)">Aucune connexion supplémentaire configurée.</div>';
+    return;
+  }
+  list.innerHTML = conns.map(c => `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-weight:600;font-size:.85rem">${escH(c.label)}</div>
+        <div style="font-size:.75rem;color:var(--muted);margin-top:2px">${escH(c.server)} / ${escH(c.database)} · ${c.trusted?'Windows':'SQL'}</div>
+      </div>
+      <button class="btn btn-ghost" onclick="editConn('${c.id}')" style="padding:5px 10px;font-size:.75rem">✏ Éditer</button>
+      <button class="btn btn-ghost" onclick="testConnById('${c.id}')" style="padding:5px 10px;font-size:.75rem">🔌 Tester</button>
+      <button class="btn btn-ghost" onclick="deleteConn('${c.id}')" style="padding:5px 10px;font-size:.75rem;color:var(--red)">✕</button>
+    </div>`).join('');
+}
+
+function addConn() {
+  qs('cf-id').value='';
+  qs('conn-form-title').textContent = 'Nouvelle connexion';
+  ['cf-label','cf-server','cf-database','cf-user','cf-password'].forEach(id=>{qs(id).value='';});
+  qs('cf-port').value = '1433';
+  qs('cf-trusted').checked = false;
+  qs('cf-trustcert').checked = true;
+  toggleCfAuth();
+  qs('cf-status').textContent='';
+  qs('conn-form').style.display='block';
+  qs('conn-form').scrollIntoView({behavior:'smooth'});
+}
+
+async function editConn(id) {
+  const conns = await fetch(CONNS_API).then(r=>r.json()).catch(()=>[]);
+  const c = conns.find(x=>x.id===id);
+  if (!c) return;
+  qs('cf-id').value     = c.id;
+  qs('conn-form-title').textContent = 'Modifier : ' + c.label;
+  qs('cf-label').value  = c.label;
+  qs('cf-server').value = c.server;
+  qs('cf-database').value = c.database;
+  qs('cf-port').value   = c.port || 1433;
+  qs('cf-trusted').checked = !!c.trusted;
+  qs('cf-user').value   = c.user || '';
+  qs('cf-password').value = c.password || '';
+  qs('cf-trustcert').checked = c.trustCert !== false;
+  toggleCfAuth();
+  qs('cf-status').textContent='';
+  qs('conn-form').style.display='block';
+  qs('conn-form').scrollIntoView({behavior:'smooth'});
+}
+
+function cancelConn() { qs('conn-form').style.display='none'; }
+
+function toggleCfAuth() {
+  qs('cf-auth-fields').style.display = qs('cf-trusted').checked ? 'none' : 'grid';
+}
+
+async function saveConn() {
+  const id = qs('cf-id').value;
+  const body = {
+    label:    qs('cf-label').value.trim() || 'Connexion',
+    server:   qs('cf-server').value.trim(),
+    database: qs('cf-database').value.trim(),
+    port:     parseInt(qs('cf-port').value)||1433,
+    trusted:  qs('cf-trusted').checked,
+    user:     qs('cf-user').value.trim(),
+    password: qs('cf-password').value || '***',
+    encrypt:  false,
+    trustCert:qs('cf-trustcert').checked,
+  };
+  try {
+    const url  = id ? `${CONNS_API}/${id}` : CONNS_API;
+    const meth = id ? 'PUT' : 'POST';
+    await fetch(url,{method:meth,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast('Connexion enregistrée','success');
+    cancelConn();
+    loadConns();
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+}
+
+async function deleteConn(id) {
+  if (!confirm('Supprimer cette connexion ?')) return;
+  await fetch(`${CONNS_API}/${id}`,{method:'DELETE'}).catch(()=>{});
+  loadConns();
+}
+
+async function testConnById(id) {
+  toast('⏳ Test en cours…','info');
+  try {
+    const res = await fetch(`${CONNS_API}/${id}/test`,{method:'POST'}).then(r=>r.json());
+    if (res.ok) toast(`✓ ${res.server} / ${res.database}`,'success');
+    else toast('Erreur : '+res.error,'error');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+}
+
+async function testConn() {
+  const id = qs('cf-id').value;
+  if (id) { return testConnById(id); }
+  // test without saving — use test-db endpoint with form values
+  const body = {
+    db: {
+      server:   qs('cf-server').value.trim(),
+      database: qs('cf-database').value.trim(),
+      port:     parseInt(qs('cf-port').value)||1433,
+      trusted:  qs('cf-trusted').checked,
+      user:     qs('cf-user').value.trim(),
+      password: qs('cf-password').value || '***',
+      encrypt:  false,
+      trustCert:qs('cf-trustcert').checked,
+    }
+  };
+  const st=qs('cf-status');
+  st.className='status info'; st.style.display='inline-flex'; st.textContent='⏳ Test en cours…';
+  try {
+    const res = await fetch('/api/settings/test-db',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+    if (res.ok) setStatus('cf-status',true,`${res.server} / ${res.database}`);
+    else setStatus('cf-status',false,res.error);
+  } catch(e) { setStatus('cf-status',false,e.message); }
+}
+
+// ── Gestion des droits ────────────────────────────────────────────────────────
+let drUsers = [], drGroups = [], drDashboards = [], drReports = [];
+let drCurrentUserId = null, drCurrentGroupId = null;
+
+const DR_ALL_PAGES = [
+  { id:'*', label:'Toutes' },
+  { id:'dashboard', label:'Tableaux de bord' },
+  { id:'backoffice', label:'Backoffice', sections:[
+    { id:'rapports',    label:'Rapports' },
+    { id:'dashboards',  label:'Tableaux de bord' },
+    { id:'builtins',    label:'Titres' },
+    { id:'objectifs',   label:'Objectifs' },
+    { id:'sources',     label:'Sources & Dimensions' },
+  ]},
+  { id:'settings', label:'Paramètres', sections:[
+    { id:'apparence', label:'Apparence' },
+    { id:'sqlserver', label:'SQL Server' },
+    { id:'as400',     label:'AS400 / DB2' },
+    { id:'email',     label:'Email / SMTP' },
+    { id:'droits',    label:'Gestion des droits' },
+  ]},
+];
+
+async function loadUsersAndGroups() {
+  try {
+    [drUsers, drGroups] = await Promise.all([
+      fetch('/api/auth/users').then(r=>r.json()),
+      fetch('/api/auth/groups').then(r=>r.json())
+    ]);
+    // Charger aussi les dashboards et rapports pour le group editor
+    [drDashboards, drReports] = await Promise.all([
+      fetch('/api/backoffice/dashboards').then(r=>r.json()).catch(()=>[]),
+      fetch('/api/backoffice/reports').then(r=>r.json()).catch(()=>[])
+    ]);
+    drRenderUserList();
+    drRenderGroupList();
+  } catch(e) { toast('Erreur chargement : ' + e.message, 'error'); }
+}
+
+function drRenderUserList() {
+  const el = qs('dr-user-list');
+  if (!drUsers.length) { el.innerHTML = '<div class="dr-item" style="color:var(--muted);font-size:.78rem;cursor:default">Aucun utilisateur</div>'; return; }
+  el.innerHTML = drUsers.map(u => {
+    const g = drGroups.find(x => x.id === u.group);
+    return `<div class="dr-item${drCurrentUserId===u.id?' active':''}" onclick="drOpenUser('${u.id}')">
+      <div class="dr-item-name">${escH(u.username)}${!u.active?'<span style="color:var(--red);font-size:.7rem;margin-left:4px">(inactif)</span>':''}</div>
+      <div class="dr-item-meta">${escH(g?.name || u.group || '—')}</div>
+    </div>`;
+  }).join('');
+}
+
+function drRenderGroupList() {
+  const el = qs('dr-group-list');
+  if (!drGroups.length) { el.innerHTML = '<div class="dr-item" style="color:var(--muted);font-size:.78rem;cursor:default">Aucun groupe</div>'; return; }
+  el.innerHTML = drGroups.map(g => {
+    const count = drUsers.filter(u => u.group === g.id).length;
+    return `<div class="dr-item${drCurrentGroupId===g.id?' active':''}" onclick="drOpenGroup('${g.id}')">
+      <div class="dr-item-name">${escH(g.name)}</div>
+      <div class="dr-item-meta">${count} utilisateur${count!==1?'s':''}</div>
+    </div>`;
+  }).join('');
+}
+
+function drShowPlaceholder() {
+  drCurrentUserId = null; drCurrentGroupId = null;
+  qs('dr-placeholder').style.display = '';
+  qs('dr-user-form').style.display = 'none';
+  qs('dr-group-form').style.display = 'none';
+  drRenderUserList(); drRenderGroupList();
+}
+
+function drOpenUser(id) {
+  drCurrentUserId = id; drCurrentGroupId = null;
+  qs('dr-placeholder').style.display = 'none';
+  qs('dr-group-form').style.display = 'none';
+  qs('dr-user-form').style.display = '';
+  const u = id ? drUsers.find(x => x.id === id) : null;
+  qs('dr-u-title').textContent = u ? 'Modifier utilisateur' : 'Nouvel utilisateur';
+  qs('dr-u-username').value = u?.username || '';
+  qs('dr-u-password').value = '';
+  qs('dr-u-active').checked = u ? u.active !== false : true;
+  qs('dr-u-delete').style.display = u ? '' : 'none';
+  const sel = qs('dr-u-group');
+  sel.innerHTML = drGroups.map(g => `<option value="${g.id}"${u?.group===g.id?' selected':''}>${escH(g.name)}</option>`).join('');
+  drRenderUserList();
+}
+
+async function drSaveUser() {
+  const username = qs('dr-u-username').value.trim();
+  const password = qs('dr-u-password').value;
+  const group    = qs('dr-u-group').value;
+  const active   = qs('dr-u-active').checked;
+  if (!username || !group) { toast('Identifiant et groupe requis', 'error'); return; }
+  if (!drCurrentUserId && !password) { toast('Mot de passe requis pour un nouvel utilisateur', 'error'); return; }
+  try {
+    const body = { username, group, active };
+    if (password) body.password = password;
+    const url  = drCurrentUserId ? `/api/auth/users/${drCurrentUserId}` : '/api/auth/users';
+    const meth = drCurrentUserId ? 'PUT' : 'POST';
+    const res  = await fetch(url, { method: meth, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r=>r.json());
+    if (res.error) throw new Error(res.error);
+    toast('Utilisateur enregistré', 'success');
+    await loadUsersAndGroups();
+    drCurrentUserId = res.id;
+    drOpenUser(res.id);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function drDeleteUser() {
+  if (!drCurrentUserId || !confirm('Supprimer cet utilisateur ?')) return;
+  try {
+    const res = await fetch(`/api/auth/users/${drCurrentUserId}`, { method:'DELETE' }).then(r=>r.json());
+    if (res.error) throw new Error(res.error);
+    toast('Utilisateur supprimé', 'success');
+    drCurrentUserId = null;
+    await loadUsersAndGroups();
+    drShowPlaceholder();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function drOpenGroup(id) {
+  drCurrentGroupId = id; drCurrentUserId = null;
+  qs('dr-placeholder').style.display = 'none';
+  qs('dr-user-form').style.display = 'none';
+  qs('dr-group-form').style.display = '';
+  const g = id ? drGroups.find(x => x.id === id) : null;
+  qs('dr-g-title').textContent = g ? 'Modifier groupe' : 'Nouveau groupe';
+  qs('dr-g-name').value = g?.name || '';
+  qs('dr-g-delete').style.display = (g && g.id !== 'grp-admin') ? '' : 'none';
+  drRenderPagesEditor('dr-g-pages', g?.pages || [], g?.pagePerms || {});
+  const dbOpts = [{ id:'*', label:'Tous' }, ...drDashboards.map(d => ({ id:d.id, label:d.name||d.id }))];
+  drRenderAccessChips('dr-g-dashboards', dbOpts, g?.dashboards || []);
+  const rptOpts = [{ id:'*', label:'Tous' }, ...drReports.map(r => ({ id:r.id, label:r.name||r.id }))];
+  drRenderAccessChips('dr-g-reports', rptOpts, g?.reports || []);
+  drRenderGroupList();
+}
+
+function drRenderPagesEditor(containerId, currentPages, currentPagePerms) {
+  const el = qs(containerId);
+  const cur = new Set(Array.isArray(currentPages) ? currentPages : []);
+  let html = '';
+  DR_ALL_PAGES.forEach(p => {
+    const sel = cur.has(p.id);
+    const hasSections = p.sections && p.sections.length > 0;
+    const sectionPerms = (currentPagePerms[p.id]) || null;
+    html += `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-bottom:4px">
+      <span class="dim-chip${sel?' selected':''}" data-page="${p.id}"
+        onclick="drTogglePageChip('${containerId}','${p.id}',this)">${escH(p.label)}</span>`;
+    if (hasSections && sel && p.id !== '*') {
+      html += `<span style="font-size:.68rem;color:var(--muted);margin-left:4px">sections :</span>`;
+      p.sections.forEach(s => {
+        const secSel = !sectionPerms || sectionPerms.includes(s.id);
+        html += `<span class="dim-chip${secSel?' selected':''}" style="font-size:.7rem;padding:3px 8px" data-pagesec="${p.id}:${s.id}"
+          onclick="this.classList.toggle('selected')">${escH(s.label)}</span>`;
+      });
+    }
+    html += `</div>`;
+  });
+  el.innerHTML = html;
+}
+
+function drTogglePageChip(containerId, pageId, el) {
+  if (pageId === '*') {
+    qs(containerId).querySelectorAll('[data-page]').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+  } else {
+    qs(containerId).querySelector('[data-page="*"]')?.classList.remove('selected');
+    el.classList.toggle('selected');
+  }
+  const pages = drGetSelectedPages(containerId);
+  const perms = drGetPagesPerms(containerId);
+  drRenderPagesEditor(containerId, pages, perms);
+}
+
+function drGetSelectedPages(containerId) {
+  return [...qs(containerId).querySelectorAll('[data-page].selected')].map(c => c.dataset.page);
+}
+
+function drGetPagesPerms(containerId) {
+  const perms = {};
+  qs(containerId).querySelectorAll('[data-pagesec].selected').forEach(c => {
+    const [page, sec] = c.dataset.pagesec.split(':');
+    if (!perms[page]) perms[page] = [];
+    perms[page].push(sec);
+  });
+  return perms;
+}
+
+function drRenderAccessChips(containerId, options, current) {
+  const el = qs(containerId);
+  const cur = new Set(Array.isArray(current) ? current : []);
+  el.innerHTML = options.map(o =>
+    `<span class="dim-chip${cur.has(o.id)?' selected':''}" data-id="${o.id}"
+      onclick="this.classList.toggle('selected')" style="cursor:pointer">${escH(o.label)}</span>`
+  ).join('');
+}
+
+function drGetSelectedChips(containerId) {
+  return [...qs(containerId).querySelectorAll('.dim-chip.selected')].map(el => el.dataset.id);
+}
+
+async function drSaveGroup() {
+  const name      = qs('dr-g-name').value.trim();
+  const pages     = drGetSelectedPages('dr-g-pages');
+  const pagePerms = drGetPagesPerms('dr-g-pages');
+  const dbAccess  = drGetSelectedChips('dr-g-dashboards');
+  const rptAccess = drGetSelectedChips('dr-g-reports');
+  if (!name) { toast('Nom du groupe requis', 'error'); return; }
+  try {
+    const body = { name, pages, pagePerms, dashboards: dbAccess, reports: rptAccess };
+    const url  = drCurrentGroupId ? `/api/auth/groups/${drCurrentGroupId}` : '/api/auth/groups';
+    const meth = drCurrentGroupId ? 'PUT' : 'POST';
+    const res  = await fetch(url, { method: meth, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(r=>r.json());
+    if (res.error) throw new Error(res.error);
+    toast('Groupe enregistré', 'success');
+    await loadUsersAndGroups();
+    drCurrentGroupId = res.id;
+    drOpenGroup(res.id);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function drDeleteGroup() {
+  if (!drCurrentGroupId || !confirm('Supprimer ce groupe ?')) return;
+  try {
+    const res = await fetch(`/api/auth/groups/${drCurrentGroupId}`, { method:'DELETE' }).then(r=>r.json());
+    if (res.error) throw new Error(res.error);
+    toast('Groupe supprimé', 'success');
+    drCurrentGroupId = null;
+    await loadUsersAndGroups();
+    drShowPlaceholder();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ── Appliquer les restrictions de sections selon le groupe ────────────────────
+(function applySettingsPerms() {
+  const SECTIONS = ['sqlserver', 'as400', 'email', 'connexions', 'apparence', 'droits'];
+  let firstVisible = null;
+  SECTIONS.forEach(s => {
+    const allowed = AUTH.canPageSection('settings', s);
+    const tab   = document.querySelector(`.tab[onclick*="'${s}'"]`);
+    const panel = document.getElementById(`panel-${s}`);
+    if (!allowed) {
+      if (tab)   tab.style.display = 'none';
+      if (panel) panel.style.display = 'none';
+    } else if (!firstVisible) {
+      firstVisible = s;
+    }
+  });
+  if (firstVisible) {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => { p.classList.remove('active'); p.style.display = ''; });
+    const tab   = document.querySelector(`.tab[onclick*="'${firstVisible}'"]`);
+    const panel = document.getElementById(`panel-${firstVisible}`);
+    if (tab)   tab.classList.add('active');
+    if (panel) panel.classList.add('active');
+  }
+})();
+</script>
+</body>
+</html>

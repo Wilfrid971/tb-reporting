@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d2e;
+      --surface2: #1e2235;
+      --border: #2a2d3e;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --blue: #2196F3;
+      --green: #4CAF50;
+      --orange: #FF9800;
+      --purple: #9C27B0;
+      --red: #F44336;
+      --radius: 12px;
+      --gap: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      position: sticky; top: 0; z-index: 10;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; margin-right: 8px; white-space: nowrap; }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+    .filters select {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
+    }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    #status-dot { width: 9px; height: 9px; border-radius: 50%; background: #666; }
+    #status-dot.ok { background: var(--green); }
+    #status-dot.error { background: var(--red); }
+    #last-update { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+    #refresh-btn {
+      background: var(--blue); border: none; color: #fff;
+      padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;
+    }
+    #refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .filters select { max-width: 200px; }
+    #custom-dates { display: none; align-items: center; gap: 4px; }
+    #custom-dates input[type=date] {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 8px; font-size: 0.78rem; cursor: pointer;
+    }
+
+    /* ── Layout ── */
+    .container { padding: var(--gap); max-width: 1400px; margin: 0 auto; }
+    .error-banner {
+      background: #2a1a1a; border: 1px solid var(--red);
+      border-radius: var(--radius); padding: 10px 14px;
+      color: var(--red); font-size: 0.85rem; margin-bottom: var(--gap); display: none;
+    }
+
+    /* ── KPI cards ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: var(--gap); margin-bottom: var(--gap);
+    }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 12px;
+      border-left: 4px solid var(--blue);
+    }
+    .kpi-label { font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .kpi-value { font-size: 1.55rem; font-weight: 700; line-height: 1.1; }
+    .kpi-unit  { font-size: 0.8rem; color: var(--text-muted); margin-left: 2px; }
+    .kpi-evol  { font-size: 0.75rem; margin-top: 5px; }
+    .kpi-evol.pos { color: var(--green); }
+    .kpi-evol.neg { color: var(--red); }
+    .kpi-evol.neu { color: var(--text-muted); }
+
+    /* ── Charts ── */
+    .chart-row {
+      display: grid; gap: var(--gap); margin-bottom: var(--gap);
+    }
+    .row-full  { grid-template-columns: 1fr; }
+    .row-2col  { grid-template-columns: 1fr; }
+    .row-3col  { grid-template-columns: 1fr; }
+    @media (min-width: 768px) {
+      .row-2col { grid-template-columns: 1fr 1fr; }
+      .row-3col { grid-template-columns: 2fr 1fr; }
+    }
+    .chart-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+    }
+    .chart-card h3 {
+      font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 12px;
+    }
+    .chart-card canvas { max-height: 260px; }
+    .no-data { color: var(--text-muted); font-size: 0.82rem; padding: 20px 0; text-align: center; }
+
+    .skeleton { animation: pulse 1.5s ease-in-out infinite; background: var(--border); border-radius: 4px; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📊 TB Reporting</h1>
+  <a href="/dashboard.html" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none;padding:4px 8px;border:1px solid var(--border);border-radius:6px;white-space:nowrap">📊 Tableaux de bord</a>
+  <a href="/backoffice.html" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none;padding:4px 8px;border:1px solid var(--border);border-radius:6px;white-space:nowrap">⚙️ Rapports</a>
+  <a href="/settings.html" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none;padding:4px 8px;border:1px solid var(--border);border-radius:6px;white-space:nowrap">🔧 Paramètres</a>
+  <div class="filters">
+    <select id="sel-periode" onchange="onPeriodeChange()"></select>
+    <div id="custom-dates">
+      <input type="date" id="date-debut" onchange="loadAll()">
+      <span style="color:var(--text-muted);font-size:.75rem">→</span>
+      <input type="date" id="date-fin" onchange="loadAll()">
+    </div>
+    <select id="sel-mois" onchange="loadAll()" style="display:none"></select>
+    <select id="sel-rep" onchange="loadAll()">
+      <option value="">Tous les commerciaux</option>
+    </select>
+  </div>
+  <div class="header-right">
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button id="refresh-btn" onclick="loadAll()">↻ Actualiser</button>
+  </div>
+</header>
+
+<div class="container">
+  <div id="error-banner" class="error-banner"></div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+  </div>
+
+  <!-- Évolution mensuelle -->
+  <div class="chart-row row-full">
+    <div class="chart-card">
+      <h3 id="title-mensuel">Évolution mensuelle CA HT</h3>
+      <canvas id="chart-mensuel"></canvas>
+    </div>
+  </div>
+
+  <!-- Top clients + CA par commercial -->
+  <div class="chart-row row-3col">
+    <div class="chart-card">
+      <h3>Top 10 clients — CA HT</h3>
+      <canvas id="chart-clients"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>CA par commercial</h3>
+      <canvas id="chart-rep"></canvas>
+    </div>
+  </div>
+
+  <!-- Top familles -->
+  <div class="chart-row row-full">
+    <div class="chart-card">
+      <h3>Top familles articles — CA HT</h3>
+      <canvas id="chart-familles"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/commercial';
+const charts = {};
+
+const PALETTE = [
+  '#2196F3','#4CAF50','#FF9800','#9C27B0','#F44336',
+  '#00BCD4','#FFEB3B','#E91E63','#009688','#FF5722'
+];
+
+function fmt(n, decimals = 0) {
+  if (n === null || n === undefined) return '—';
+  return new Intl.NumberFormat('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
+}
+function fmtEuro(n) { return fmt(n) + ' €'; }
+function hexAlpha(hex, a) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function pad(n) { return String(n).padStart(2,'0'); }
+function isoDate(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+
+function qs(id) { return document.getElementById(id); }
+
+const MOIS_NOMS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+function buildCalMoisOptions() {
+  return `<option value="">Toute l'année</option>` +
+    MOIS_NOMS.map((n, i) => `<option value="${i+1}">${n}</option>`).join('');
+}
+
+function buildExeMoisOptions(d0, d1) {
+  let html = `<option value="">Tout l'exercice</option>`;
+  let d = new Date(d0 + 'T00:00:00');
+  const end = new Date(d1 + 'T00:00:00');
+  while (d <= end) {
+    const y = d.getFullYear(), m = d.getMonth();
+    html += `<option value="${y}-${pad(m+1)}">${MOIS_NOMS[m]} ${y}</option>`;
+    d = new Date(y, m + 1, 1);
+  }
+  return html;
+}
+
+// Résout la valeur du sélecteur en paramètres API
+function getFilters() {
+  const val   = qs('sel-periode').value || '';
+  const repid = qs('sel-rep').value || '';
+  const mois  = qs('sel-mois').value || '';
+
+  if (val === 'custom') {
+    const d0 = qs('date-debut').value, d1 = qs('date-fin').value;
+    if (!d0 || !d1) return null;
+    return { date_debut: d0, date_fin: d1, repid };
+  }
+  if (val.startsWith('cal:')) {
+    return { annee: val.slice(4), mois, repid };
+  }
+  if (val.startsWith('ytd_exe:')) {
+    const [, d0] = val.split(':');
+    // Début d'exercice → aujourd'hui
+    return { date_debut: d0, date_fin: isoDate(new Date()), repid };
+  }
+  if (val.startsWith('exe:')) {
+    const [, d0, d1] = val.split(':');
+    if (mois) {
+      // mois = "YYYY-MM" — filtrer sur ce mois précis de l'exercice
+      const [y, m] = mois.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      return { date_debut: `${y}-${pad(m)}-01`, date_fin: `${y}-${pad(m)}-${pad(lastDay)}`, repid };
+    }
+    return { date_debut: d0, date_fin: d1, repid };
+  }
+  // Préréglages basés sur la date du jour
+  const today = new Date();
+  const presets = {
+    ytd:   { date_debut: `${today.getFullYear()}-01-01`, date_fin: isoDate(today) },
+    month: { date_debut: `${today.getFullYear()}-${pad(today.getMonth()+1)}-01`,
+             date_fin:   isoDate(new Date(today.getFullYear(), today.getMonth()+1, 0)) },
+    '30j': { date_debut: isoDate(new Date(today - 30*86400000)), date_fin: isoDate(today) },
+    '90j': { date_debut: isoDate(new Date(today - 90*86400000)), date_fin: isoDate(today) },
+    '12m': { date_debut: isoDate(new Date(today.getFullYear()-1, today.getMonth()+1, 1)),
+             date_fin:   isoDate(today) },
+  };
+  return { ...(presets[val] || presets.ytd), repid };
+}
+
+function buildParams(extra = {}) {
+  const f = { ...getFilters(), ...extra };
+  if (!f) return '';
+  return Object.entries(f).filter(([,v]) => v !== '' && v != null).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
+// Affiche/masque et reconstruit les contrôles selon le mode sélectionné
+function onPeriodeChange() {
+  const val      = qs('sel-periode').value || '';
+  const isCal    = val.startsWith('cal:');
+  const isExe    = val.startsWith('exe:');
+  const isYtdExe = val.startsWith('ytd_exe:');
+  const isCustom = val === 'custom';
+  const selMois  = qs('sel-mois');
+
+  if (isCal) {
+    selMois.innerHTML    = buildCalMoisOptions();
+    selMois.style.display = '';
+  } else if (isExe) {
+    const [, d0, d1]     = val.split(':');
+    selMois.innerHTML    = buildExeMoisOptions(d0, d1);
+    selMois.style.display = '';
+  } else {
+    // ytd_exe, ytd, month, glissant, custom → pas de filtre mois
+    selMois.style.display = 'none';
+  }
+
+  qs('custom-dates').style.display = isCustom ? 'flex' : 'none';
+  if (!isCustom) loadAll();
+}
+
+// ── Init filtres ──────────────────────────────────────────────
+async function initFilters() {
+  const data = await fetch(`${API}/filters`).then(r => r.json());
+  const today = new Date();
+  const curYear = today.getFullYear();
+
+  // Construction du <select> de période
+  const sel = qs('sel-periode');
+  let html = '';
+
+  const todayStr = isoDate(today);
+  const curExe = (data.exercices || []).find(e => e.date_debut <= todayStr && todayStr <= e.date_fin);
+
+  if (data.exercices && data.exercices.length) {
+    html += `<optgroup label="─ YTD exercice ─">`;
+    data.exercices.forEach(e => {
+      const isCur = curExe && e.date_debut === curExe.date_debut;
+      const anneeLabel = e.annee_debut === e.annee_fin ? e.annee_debut : `${e.annee_debut}/${e.annee_fin}`;
+      const label = e.libelle ? e.libelle : `Exercice ${anneeLabel}`;
+      html += `<option value="ytd_exe:${e.date_debut}:${e.date_fin}"${isCur?' selected':''}>YTD ${label}${isCur?' (en cours)':''}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+
+  html += `<optgroup label="─ Aujourd'hui ─">`;
+  html += `<option value="ytd"${curExe?'':' selected'}>YTD calendaire (depuis le 01/01)</option>`;
+  html += `<option value="month">Mois en cours</option>`;
+  html += `<option value="30j">30 derniers jours</option>`;
+  html += `<option value="90j">90 derniers jours</option>`;
+  html += `<option value="12m">12 derniers mois glissants</option>`;
+  html += `</optgroup>`;
+
+  if (data.annees && data.annees.length) {
+    html += `<optgroup label="─ Années calendaires ─">`;
+    data.annees.forEach(a => {
+      html += `<option value="cal:${a}">${a}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+
+  if (data.exercices && data.exercices.length) {
+    html += `<optgroup label="─ Exercices fiscaux (complets) ─">`;
+    data.exercices.forEach(e => {
+      const anneeLabel = e.annee_debut === e.annee_fin
+        ? e.annee_debut
+        : `${e.annee_debut}/${e.annee_fin}`;
+      const fmtD0 = formatDate(e.date_debut), fmtD1 = formatDate(e.date_fin);
+      const label = e.libelle
+        ? `${e.libelle} (${fmtD0} → ${fmtD1})`
+        : `Exercice ${anneeLabel} (${fmtD0} → ${fmtD1})`;
+      html += `<option value="exe:${e.date_debut}:${e.date_fin}">${label}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+
+  html += `<optgroup label="─ Période libre ─">`;
+  html += `<option value="custom">Personnalisée (choisir les dates)...</option>`;
+  html += `</optgroup>`;
+
+  sel.innerHTML = html;
+
+  // Pré-remplir les dates libres sur aujourd'hui
+  qs('date-debut').value = `${curYear}-01-01`;
+  qs('date-fin').value   = isoDate(today);
+
+  // Afficher/masquer les contrôles selon la sélection initiale
+  onPeriodeChange();
+
+  // Commerciaux
+  const selRep = qs('sel-rep');
+  data.commerciaux.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.TIRID; opt.textContent = c.nom;
+    selRep.appendChild(opt);
+  });
+}
+
+// ── KPIs ─────────────────────────────────────────────────────
+async function loadKpis() {
+  const data = await fetch(`${API}/kpis?${buildParams()}`).then(r => r.json());
+  const { ca_periode, ca_n1, nb_factures, nb_clients } = data;
+  const periodeLabel = formatDatesInLabel(data.periodeLabel);
+  const n1Label      = formatDatesInLabel(data.n1Label);
+  const evol = ca_n1 > 0 ? ((ca_periode - ca_n1) / ca_n1 * 100) : null;
+  const ticketMoyen = nb_factures > 0 ? ca_periode / nb_factures : 0;
+
+  function evolHtml(val) {
+    if (val === null) return `<div class="kpi-evol neu">— vs N-1</div>`;
+    const cls = val >= 0 ? 'pos' : 'neg';
+    const arrow = val >= 0 ? '▲' : '▼';
+    return `<div class="kpi-evol ${cls}">${arrow} ${val >= 0 ? '+' : ''}${fmt(val, 1)} % vs N-1</div>`;
+  }
+
+  qs('kpi-grid').innerHTML = `
+    <div class="kpi-card" style="border-left-color:var(--blue)">
+      <div class="kpi-label">CA HT — ${periodeLabel || ''}</div>
+      <div class="kpi-value">${fmt(ca_periode)}<span class="kpi-unit">€</span></div>
+      ${evolHtml(evol)}
+    </div>
+    <div class="kpi-card" style="border-left-color:var(--purple)">
+      <div class="kpi-label">CA N-1 — ${n1Label || ''}</div>
+      <div class="kpi-value">${fmt(ca_n1)}<span class="kpi-unit">€</span></div>
+      <div class="kpi-evol neu">Référence</div>
+    </div>
+    <div class="kpi-card" style="border-left-color:var(--orange)">
+      <div class="kpi-label">Nb factures</div>
+      <div class="kpi-value">${fmt(nb_factures)}</div>
+    </div>
+    <div class="kpi-card" style="border-left-color:var(--green)">
+      <div class="kpi-label">Clients actifs</div>
+      <div class="kpi-value">${fmt(nb_clients)}</div>
+    </div>
+    <div class="kpi-card" style="border-left-color:#00BCD4">
+      <div class="kpi-label">Ticket moyen</div>
+      <div class="kpi-value">${fmt(ticketMoyen)}<span class="kpi-unit">€</span></div>
+    </div>
+  `;
+}
+
+// ── Évolution mensuelle ───────────────────────────────────────
+async function loadMensuel() {
+  const data = await fetch(`${API}/mensuel?${buildParams()}`).then(r => r.json());
+  if (data.error || !data.months) throw new Error(data.error || 'Réponse inattendue (/mensuel)');
+
+  qs('title-mensuel').textContent =
+    `Évolution mensuelle CA HT — ${formatDatesInLabel(data.periodeLabel)} vs ${formatDatesInLabel(data.n1Label)}`;
+
+  const ctx = qs('chart-mensuel').getContext('2d');
+  if (charts.mensuel) charts.mensuel.destroy();
+  charts.mensuel = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.months.map(m => m.label),
+      datasets: [
+        {
+          label: formatDatesInLabel(data.periodeLabel),
+          data: data.months.map(m => m.n),
+          backgroundColor: hexAlpha('#2196F3', 0.8),
+          borderColor: '#2196F3', borderWidth: 1,
+        },
+        {
+          label: formatDatesInLabel(data.n1Label),
+          data: data.months.map(m => m.n1),
+          backgroundColor: hexAlpha('#8892a4', 0.45),
+          borderColor: '#8892a4', borderWidth: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label} : ${fmtEuro(ctx.raw)}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#8892a4', callback: v => fmt(v) + ' €' }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// ── Top clients ───────────────────────────────────────────────
+async function loadClients() {
+  const rows = await fetch(`${API}/top-clients?${buildParams()}`).then(r => r.json());
+  const ctx = qs('chart-clients').getContext('2d');
+  if (charts.clients) charts.clients.destroy();
+  if (!rows.length) { qs('chart-clients').replaceWith(Object.assign(document.createElement('p'),{className:'no-data',textContent:'Aucune donnée'})); return; }
+  charts.clients = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.label),
+      datasets: [{ data: rows.map(r => parseFloat(r.valeur)||0), backgroundColor: hexAlpha('#4CAF50', 0.75), borderColor: '#4CAF50', borderWidth: 1 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${fmtEuro(ctx.raw)}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// ── CA par commercial ─────────────────────────────────────────
+async function loadRep() {
+  const rows = await fetch(`${API}/par-commercial?${buildParams()}`).then(r => r.json());
+  const ctx = qs('chart-rep').getContext('2d');
+  if (charts.rep) charts.rep.destroy();
+  if (!rows.length) { qs('chart-rep').replaceWith(Object.assign(document.createElement('p'),{className:'no-data',textContent:'Aucune donnée'})); return; }
+
+  if (rows.length <= 5) {
+    // Doughnut si peu de commerciaux
+    charts.rep = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: rows.map(r => r.label),
+        datasets: [{ data: rows.map(r => parseFloat(r.valeur)||0), backgroundColor: PALETTE, borderColor: '#1a1d2e', borderWidth: 2 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#e2e8f0', font: { size: 11 }, padding: 10 } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label} : ${fmtEuro(ctx.raw)}` } }
+        }
+      }
+    });
+  } else {
+    charts.rep = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: rows.map(r => r.label),
+        datasets: [{ data: rows.map(r => parseFloat(r.valeur)||0), backgroundColor: PALETTE, borderWidth: 1 }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmtEuro(ctx.raw)}` } } },
+        scales: {
+          x: { ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } },
+          y: { ticks: { color: '#e2e8f0' }, grid: { color: '#2a2d3e' } }
+        }
+      }
+    });
+  }
+}
+
+// ── Top familles ──────────────────────────────────────────────
+async function loadFamilles() {
+  const rows = await fetch(`${API}/top-familles?${buildParams()}`).then(r => r.json());
+  const ctx = qs('chart-familles').getContext('2d');
+  if (charts.familles) charts.familles.destroy();
+  if (!rows.length) { qs('chart-familles').replaceWith(Object.assign(document.createElement('p'),{className:'no-data',textContent:'Aucune donnée'})); return; }
+  charts.familles = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.label),
+      datasets: [{ data: rows.map(r => parseFloat(r.valeur)||0), backgroundColor: PALETTE.map(c => hexAlpha(c, 0.75)), borderColor: PALETTE, borderWidth: 1 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmtEuro(ctx.raw)}` } } },
+      scales: {
+        x: { ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// ── Chargement global ─────────────────────────────────────────
+async function loadAll() {
+  if (!getFilters()) return; // dates libres incomplètes
+  const btn = qs('refresh-btn');
+  const dot = qs('status-dot');
+  const banner = qs('error-banner');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await Promise.all([loadKpis(), loadMensuel(), loadClients(), loadRep(), loadFamilles()]);
+    dot.className = 'ok';
+    banner.style.display = 'none';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch (err) {
+    dot.className = 'error';
+    banner.style.display = 'block';
+    banner.textContent = `Erreur : ${err.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+// ── Démarrage ─────────────────────────────────────────────────
+initFilters().then(loadAll);
+</script>
+</body>
+</html>

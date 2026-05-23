@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root{--bg:#0f1117;--surface:#1a1d2e;--surface2:#1e2235;--border:#2a2d3e;
+      --text:#e2e8f0;--muted:#8892a4;--blue:#2196F3;--green:#4CAF50;
+      --orange:#FF9800;--red:#F44336;--purple:#9C27B0;--radius:10px;--gap:14px}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+    html.embedded header{display:none}
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+    header h1{font-size:1rem;font-weight:600;white-space:nowrap}
+    .nav-link{color:var(--muted);font-size:.78rem;text-decoration:none;padding:4px 10px;
+      border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+    .nav-link:hover{color:var(--text);border-color:var(--blue)}
+    .spacer{flex:1}
+    select{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer}
+    #status-dot{width:9px;height:9px;border-radius:50%;background:#666;flex-shrink:0}
+    #status-dot.ok{background:var(--green)}#status-dot.err{background:var(--red)}
+    #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;
+      border-radius:6px;font-size:.8rem;cursor:pointer}
+    #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
+
+    /* ── Tabs ── */
+    .tabs{background:var(--surface);border-bottom:1px solid var(--border);
+      display:flex;padding:0 16px;gap:0}
+    .tab{background:none;border:none;color:var(--muted);padding:10px 18px;
+      font-size:.82rem;cursor:pointer;border-bottom:2px solid transparent;
+      margin-bottom:-1px;font-family:inherit;white-space:nowrap}
+    .tab.active{color:var(--text);border-bottom-color:var(--blue);font-weight:600}
+
+    .container{max-width:1300px;margin:0 auto;padding:var(--gap)}
+    .error-banner{background:#2a1a1a;border:1px solid var(--red);border-radius:var(--radius);
+      padding:10px 14px;color:var(--red);font-size:.85rem;margin-bottom:var(--gap);display:none}
+    .tab-panel{display:none}.tab-panel.active{display:block}
+
+    /* ── KPI Cards ── */
+    .kpi-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+    .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:14px 18px;border-left:3px solid var(--blue)}
+    .kpi-card.danger{border-left-color:var(--red)}
+    .kpi-card.warn{border-left-color:var(--orange)}
+    .kpi-card.ok{border-left-color:var(--green)}
+    .kpi-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+    .kpi-val{font-size:1.25rem;font-weight:700}
+    .kpi-sub{font-size:.7rem;color:var(--muted);margin-top:3px}
+
+    /* ── Filtres inline ── */
+    .filter-bar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:10px 14px;margin-bottom:var(--gap);display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+    .filter-bar label{font-size:.75rem;color:var(--muted)}
+    .filter-bar input[type=date]{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 9px;font-size:.8rem}
+    .filter-bar .sep{width:1px;height:20px;background:var(--border)}
+    .btn-apply{background:var(--blue);border:none;color:#fff;padding:5px 14px;
+      border-radius:6px;font-size:.8rem;cursor:pointer}
+    .btn-apply:hover{background:#1976D2}
+
+    /* ── Tables ── */
+    .tbl-wrap{overflow-x:auto}
+    .data-table{width:100%;border-collapse:collapse;font-size:.82rem}
+    .data-table th{background:var(--surface2);color:var(--muted);padding:8px 12px;
+      text-align:left;border-bottom:1px solid var(--border);font-size:.72rem;
+      text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;position:sticky;top:0}
+    .data-table th.r{text-align:right}
+    .data-table td{padding:7px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+    .data-table td.r{text-align:right;font-weight:600;color:var(--blue)}
+    .data-table td.r.neg{color:var(--red)}
+    .data-table td.r.warn{color:var(--orange)}
+    .data-table td.r.ok{color:var(--green)}
+    .data-table tr:last-child td{border-bottom:none}
+    .data-table tr:hover td{background:var(--surface2)}
+    .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.68rem;font-weight:700}
+    .badge-red{background:rgba(244,67,54,.2);color:var(--red)}
+    .badge-orange{background:rgba(255,152,0,.2);color:var(--orange)}
+    .badge-green{background:rgba(76,175,80,.2);color:var(--green)}
+
+    /* ── Chart ── */
+    .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:14px;margin-bottom:var(--gap)}
+    .chart-title{font-size:.82rem;font-weight:600;margin-bottom:10px;color:var(--text)}
+    .chart-wrap{position:relative;height:240px}
+
+    /* ── Totaux ── */
+    .totaux-row{background:var(--surface2);font-weight:700;font-size:.85rem}
+
+    /* ── Tabs vue ── */
+    .sub-tabs{display:flex;gap:6px;margin-bottom:var(--gap)}
+    .sub-tab{background:var(--surface);border:1px solid var(--border);border-radius:6px;
+      padding:5px 14px;font-size:.78rem;cursor:pointer;color:var(--muted)}
+    .sub-tab.active{background:var(--blue);border-color:var(--blue);color:#fff}
+
+    .empty{text-align:center;padding:40px;color:var(--muted);font-size:.85rem}
+    .skeleton{animation:pulse 1.4s ease-in-out infinite;background:var(--border);border-radius:4px;display:inline-block;height:14px}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  </style>
+  <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+
+<header>
+  <h1>📦 Stock</h1>
+  <a class="nav-link" href="/tb-reporting.html">← TB Reporting</a>
+  <a class="nav-link" href="/dashboard.html">📊 Tableaux de bord</a>
+  <a class="nav-link" href="/dashboard.html">📋 Rapports</a>
+  <a class="nav-link" href="/backoffice.html">⚙️ Backoffice</a>
+  <select id="sel-depot" onchange="onFiltersChange()">
+    <option value="">Tous les dépôts</option>
+  </select>
+  <select id="sel-fournisseur" onchange="onFiltersChange()">
+    <option value="">Tous les fournisseurs</option>
+  </select>
+  <div class="spacer"></div>
+  <span id="status-dot"></span>
+  <span id="last-update" style="font-size:.72rem;color:var(--muted)"></span>
+  <button id="refresh-btn" onclick="loadActive()">↻ Actualiser</button>
+</header>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('apercu',this)">📊 Aperçu</button>
+  <button class="tab" onclick="switchTab('ruptures',this)">🔴 Ruptures</button>
+  <button class="tab" onclick="switchTab('valeur',this)">💰 Valorisation</button>
+  <button class="tab" onclick="switchTab('mouvements',this)">📋 Mouvements</button>
+  <button class="tab" onclick="switchTab('adate',this)">📅 Stock à date</button>
+</div>
+
+<div class="container">
+  <div id="error-banner" class="error-banner"></div>
+
+  <!-- ══ Aperçu ══ -->
+  <div id="tab-apercu" class="tab-panel active">
+    <div class="kpi-row" id="kpi-cards">
+      <div class="kpi-card"><div class="kpi-label">Valeur CRUMP</div><div class="kpi-val"><span class="skeleton" style="width:120px">&nbsp;</span></div></div>
+      <div class="kpi-card"><div class="kpi-label">Valeur PRMP</div><div class="kpi-val"><span class="skeleton" style="width:120px">&nbsp;</span></div></div>
+      <div class="kpi-card danger"><div class="kpi-label">Ruptures</div><div class="kpi-val"><span class="skeleton" style="width:40px">&nbsp;</span></div></div>
+      <div class="kpi-card warn"><div class="kpi-label">Sous seuil min</div><div class="kpi-val"><span class="skeleton" style="width:40px">&nbsp;</span></div></div>
+      <div class="kpi-card ok"><div class="kpi-label">Articles en stock</div><div class="kpi-val"><span class="skeleton" style="width:60px">&nbsp;</span></div></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Évolution de la valeur du stock (CRUMP) — 13 derniers mois</div>
+      <div class="chart-wrap"><canvas id="chart-evolution"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ══ Ruptures ══ -->
+  <div id="tab-ruptures" class="tab-panel">
+    <div class="filter-bar">
+      <label>Famille</label><select id="rupt-famille" onchange="loadRuptures()"><option value="">Toutes</option></select>
+      <div class="sep"></div>
+      <label><input type="checkbox" id="rupt-sous-seuil" onchange="loadRuptures()"> Inclure sous seuil</label>
+      <div class="sep"></div>
+      <label>Limite</label>
+      <select id="rupt-limit" onchange="loadRuptures()">
+        <option value="50">50</option><option value="100" selected>100</option><option value="200">200</option>
+      </select>
+    </div>
+    <div class="tbl-wrap" id="ruptures-table"><div class="empty">Chargement…</div></div>
+  </div>
+
+  <!-- ══ Valorisation ══ -->
+  <div id="tab-valeur" class="tab-panel">
+    <div class="filter-bar">
+      <div class="sub-tabs">
+        <button class="sub-tab active" onclick="setValGroup('famille',this)">Par famille</button>
+        <button class="sub-tab" onclick="setValGroup('article',this)">Par article</button>
+        <button class="sub-tab" onclick="setValGroup('fournisseur',this)">Par fournisseur</button>
+      </div>
+      <div class="sep"></div>
+      <label>Famille</label><select id="val-famille" onchange="loadValeur()"><option value="">Toutes</option></select>
+      <div class="sep"></div>
+      <label>Limite</label>
+      <select id="val-limit" onchange="loadValeur()">
+        <option value="100">100</option><option value="200" selected>200</option><option value="500">500</option>
+      </select>
+    </div>
+    <div class="tbl-wrap" id="valeur-table"><div class="empty">Chargement…</div></div>
+  </div>
+
+  <!-- ══ Mouvements ══ -->
+  <div id="tab-mouvements" class="tab-panel">
+    <div class="filter-bar">
+      <label>Début</label><input type="date" id="mvt-debut">
+      <label>Fin</label><input type="date" id="mvt-fin">
+      <div class="sep"></div>
+      <label>Nature</label>
+      <select id="mvt-nature">
+        <option value="">Toutes</option>
+        <option value="R">Réel</option>
+        <option value="C">Commande</option>
+        <option value="V">Réservé</option>
+        <option value="F">Fabrication</option>
+        <option value="L">Bloqué</option>
+      </select>
+      <div class="sep"></div>
+      <label>Limite</label>
+      <select id="mvt-limit">
+        <option value="100">100</option><option value="250" selected>250</option><option value="500">500</option>
+      </select>
+      <button class="btn-apply" onclick="loadMouvements()">Filtrer</button>
+    </div>
+    <div class="tbl-wrap" id="mvt-table"><div class="empty">Chargement…</div></div>
+  </div>
+
+  <!-- ══ Stock à date ══ -->
+  <div id="tab-adate" class="tab-panel">
+    <div class="filter-bar">
+      <label>Date de référence</label><input type="date" id="adate-date">
+      <div class="sep"></div>
+      <label>Famille</label><select id="adate-famille"><option value="">Toutes</option></select>
+      <div class="sep"></div>
+      <label>Limite</label>
+      <select id="adate-limit">
+        <option value="200" selected>200</option><option value="500">500</option>
+      </select>
+      <button class="btn-apply" onclick="loadADate()">Calculer</button>
+    </div>
+    <div id="adate-totaux" style="display:none;margin-bottom:var(--gap)">
+      <div class="kpi-row" id="adate-kpis"></div>
+    </div>
+    <div class="tbl-wrap" id="adate-table"><div class="empty">Sélectionnez une date et cliquez Calculer.</div></div>
+  </div>
+</div>
+
+<script>
+const API = '/api/stock';
+let activeTab = 'apercu';
+let familles = [], depots = [];
+let valGroup = 'famille';
+let chartEvol = null;
+
+function qs(id) { return document.getElementById(id); }
+function escH(s) { return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmt(n, dec=0) {
+  if (n===null||n===undefined||isNaN(+n)) return '—';
+  return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec}).format(+n);
+}
+function fmtE(n) { return fmt(n)+' €'; }
+
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  qs('tab-'+name).classList.add('active');
+  activeTab = name;
+  loadActive();
+}
+
+function onFiltersChange() { loadActive(); }
+
+function loadActive() {
+  if (activeTab === 'apercu')     { loadKpis(); loadEvolution(); }
+  if (activeTab === 'ruptures')   loadRuptures();
+  if (activeTab === 'valeur')     loadValeur();
+  if (activeTab === 'mouvements') loadMouvements();
+  // adate: only on demand
+}
+
+function depotParam() {
+  const v = qs('sel-depot').value;
+  return v ? `&depid=${v}` : '';
+}
+function fouParam() {
+  const v = qs('sel-fournisseur').value;
+  return v ? `&fouid=${v}` : '';
+}
+function globalParams() { return depotParam() + fouParam(); }
+
+function setStatus(ok) {
+  qs('status-dot').className = ok ? 'ok' : 'err';
+  qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+}
+
+// ── KPIs ──────────────────────────────────────────────────────────────────────
+async function loadKpis() {
+  try {
+    const data = await fetch(`${API}/kpis?${globalParams()}`).then(r=>r.json());
+    if (data.error) throw new Error(data.error);
+    qs('kpi-cards').innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-label">Valeur stock CRUMP</div>
+        <div class="kpi-val">${fmtE(data.val_crump)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Valeur stock PRMP</div>
+        <div class="kpi-val">${fmtE(data.val_prmp)}</div>
+        <div class="kpi-sub">PMP : ${fmtE(data.val_pmp)}</div>
+      </div>
+      <div class="kpi-card danger">
+        <div class="kpi-label">Ruptures de stock</div>
+        <div class="kpi-val" style="color:var(--red)">${fmt(data.nb_ruptures)}</div>
+        <div class="kpi-sub">articles à 0 avec seuil &gt; 0</div>
+      </div>
+      <div class="kpi-card warn">
+        <div class="kpi-label">Sous seuil minimum</div>
+        <div class="kpi-val" style="color:var(--orange)">${fmt(data.nb_sous_seuil)}</div>
+        <div class="kpi-sub">stock &gt; 0 mais &lt; seuil min</div>
+      </div>
+      <div class="kpi-card ok">
+        <div class="kpi-label">Articles en stock</div>
+        <div class="kpi-val" style="color:var(--green)">${fmt(data.nb_en_stock)}</div>
+        <div class="kpi-sub">sur ${fmt(data.nb_articles_geres)} gérés</div>
+      </div>`;
+    setStatus(true);
+  } catch(e) { showError(e.message); setStatus(false); }
+}
+
+// ── Évolution ─────────────────────────────────────────────────────────────────
+async function loadEvolution() {
+  try {
+    const rows = await fetch(`${API}/evolution?mois=13${depotParam()}`).then(r=>r.json());
+    if (!rows.length) return;
+    const labels   = rows.map(r=>r.mois);
+    const valCrump = rows.map(r=>parseFloat(r.val_crump)||0);
+    const valPrmp  = rows.map(r=>parseFloat(r.val_prmp)||0);
+    if (chartEvol) { chartEvol.destroy(); chartEvol=null; }
+    const ctx = qs('chart-evolution').getContext('2d');
+    chartEvol = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label:'CRUMP', data:valCrump, backgroundColor:'rgba(33,150,243,.7)', borderColor:'#2196F3', borderWidth:1 },
+          { label:'PRMP',  data:valPrmp,  backgroundColor:'rgba(76,175,80,.5)',  borderColor:'#4CAF50', borderWidth:1, type:'line', fill:false, tension:.3 },
+        ]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ labels:{ color:'#e2e8f0', font:{size:11} } } },
+        scales:{
+          x:{ ticks:{color:'#8892a4',font:{size:10}}, grid:{color:'#2a2d3e'} },
+          y:{ ticks:{color:'#8892a4',font:{size:10}, callback:v=>fmt(v)+' €'}, grid:{color:'#2a2d3e'} }
+        }
+      }
+    });
+  } catch(e) { console.warn('Evolution chart:', e.message); }
+}
+
+// ── Ruptures ──────────────────────────────────────────────────────────────────
+async function loadRuptures() {
+  const el = qs('ruptures-table');
+  el.innerHTML = '<div class="empty">Chargement…</div>';
+  const famille   = qs('rupt-famille').value;
+  const sousSeuil = qs('rupt-sous-seuil').checked ? '1' : '0';
+  const limit     = qs('rupt-limit').value;
+  try {
+    const rows = await fetch(`${API}/ruptures?limit=${limit}&sous_seuil=${sousSeuil}${globalParams()}${famille?'&famille='+famille:''}`).then(r=>r.json());
+    if (rows.error) throw new Error(rows.error);
+    if (!rows.length) { el.innerHTML='<div class="empty">✅ Aucune rupture trouvée.</div>'; return; }
+    el.innerHTML = `<table class="data-table">
+      <thead><tr>
+        <th>Référence</th><th>Désignation</th><th>Famille</th>
+        <th class="r">Stock réel</th><th class="r">Seuil min</th><th class="r">Manque</th>
+        <th class="r">PR CRUMP</th><th class="r">Valeur manque</th>
+        <th class="r">CA 90j</th><th class="r">Qté 90j</th>
+        <th>Dern. entrée</th><th>Dern. sortie</th>
+        <th>État</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>{
+        const etat = r.stock_reel <= 0
+          ? '<span class="badge badge-red">Rupture</span>'
+          : '<span class="badge badge-orange">Sous seuil</span>';
+        const stockCls = r.stock_reel <= 0 ? 'neg' : 'warn';
+        const valManque = r.manque_qte * r.pr_crump;
+        return `<tr>
+          <td><strong>${escH(r.ref||'')}</strong></td>
+          <td>${escH(r.designation||'')}</td>
+          <td><span style="color:var(--muted);font-size:.75rem">${escH(r.famille||'')}</span></td>
+          <td class="r ${stockCls}">${fmt(r.stock_reel)}</td>
+          <td class="r">${fmt(r.seuil_min)}</td>
+          <td class="r" style="color:var(--orange)">${fmt(r.manque_qte)}</td>
+          <td class="r">${fmtE(r.pr_crump)}</td>
+          <td class="r" style="color:var(--orange)">${valManque>0?fmtE(valManque):'—'}</td>
+          <td class="r">${r.ca_90j>0?fmtE(r.ca_90j):'—'}</td>
+          <td class="r">${r.qte_90j>0?fmt(r.qte_90j):'—'}</td>
+          <td style="font-size:.75rem;color:var(--muted)">${r.derniere_entree?formatDate(r.derniere_entree):'—'}</td>
+          <td style="font-size:.75rem;color:var(--muted)">${r.derniere_sortie?formatDate(r.derniere_sortie):'—'}</td>
+          <td>${etat}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table>`;
+    setStatus(true);
+  } catch(e) { el.innerHTML=`<div class="empty" style="color:var(--red)">⚠ ${escH(e.message)}</div>`; setStatus(false); }
+}
+
+// ── Valorisation ──────────────────────────────────────────────────────────────
+let valGroupActive = 'famille';
+function setValGroup(g, btn) {
+  valGroupActive = g;
+  document.querySelectorAll('.sub-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  loadValeur();
+}
+
+async function loadValeur() {
+  const el = qs('valeur-table');
+  el.innerHTML = '<div class="empty">Chargement…</div>';
+  const famille = qs('val-famille').value;
+  const limit   = qs('val-limit').value;
+  try {
+    const data = await fetch(`${API}/valeur?group=${valGroupActive}&limit=${limit}${globalParams()}${famille?'&famille='+famille:''}`).then(r=>r.json());
+    if (data.error) throw new Error(data.error);
+    const rows = data.rows || [];
+    if (!rows.length) { el.innerHTML='<div class="empty">Aucune donnée.</div>'; return; }
+
+    const totCrump = rows.reduce((s,r)=>s+(parseFloat(r.val_crump)||0),0);
+    const totPrmp  = rows.reduce((s,r)=>s+(parseFloat(r.val_prmp)||0),0);
+    const totPmp   = rows.reduce((s,r)=>s+(parseFloat(r.val_pmp)||0),0);
+    const totQte   = rows.reduce((s,r)=>s+(parseFloat(r.stock_reel)||0),0);
+
+    if (valGroupActive === 'famille') {
+      el.innerHTML = `<table class="data-table">
+        <thead><tr>
+          <th>Famille</th><th class="r">Nb articles</th><th class="r">Stock réel</th>
+          <th class="r">Valeur CRUMP</th><th class="r">% total</th>
+          <th class="r">Valeur PRMP</th><th class="r">Valeur PMP</th>
+        </tr></thead><tbody>
+        ${rows.map(r=>{
+          const pct = totCrump>0 ? (r.val_crump/totCrump*100) : 0;
+          return `<tr>
+            <td><strong>${escH(r.famille||'Sans famille')}</strong></td>
+            <td class="r">${fmt(r.nb_articles)}</td>
+            <td class="r">${fmt(r.stock_reel)}</td>
+            <td class="r">${fmtE(r.val_crump)}</td>
+            <td class="r">
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="background:var(--surface2);border-radius:3px;height:6px;width:80px">
+                  <div style="background:var(--blue);height:6px;border-radius:3px;width:${Math.round(pct)}%"></div>
+                </div>
+                <span style="font-size:.75rem;color:var(--muted)">${fmt(pct,1)} %</span>
+              </div>
+            </td>
+            <td class="r">${fmtE(r.val_prmp)}</td>
+            <td class="r">${fmtE(r.val_pmp)}</td>
+          </tr>`;
+        }).join('')}
+        <tr class="totaux-row">
+          <td>TOTAL</td><td class="r">—</td>
+          <td class="r">${fmt(totQte)}</td>
+          <td class="r">${fmtE(totCrump)}</td>
+          <td class="r">100 %</td>
+          <td class="r">${fmtE(totPrmp)}</td>
+          <td class="r">${fmtE(totPmp)}</td>
+        </tr>
+        </tbody></table>`;
+    } else if (valGroupActive === 'fournisseur') {
+      el.innerHTML = `<table class="data-table">
+        <thead><tr>
+          <th>Fournisseur</th><th class="r">Nb articles</th><th class="r">Stock réel</th>
+          <th class="r">Valeur CRUMP</th><th class="r">% total</th>
+          <th class="r">Valeur PRMP</th><th class="r">Valeur PMP</th>
+        </tr></thead><tbody>
+        ${rows.map(r=>{
+          const pct = totCrump>0 ? (r.val_crump/totCrump*100) : 0;
+          return `<tr>
+            <td><strong>${escH(r.fournisseur||'Sans fournisseur')}</strong></td>
+            <td class="r">${fmt(r.nb_articles)}</td>
+            <td class="r">${fmt(r.stock_reel)}</td>
+            <td class="r">${fmtE(r.val_crump)}</td>
+            <td class="r">
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="background:var(--surface2);border-radius:3px;height:6px;width:80px">
+                  <div style="background:var(--blue);height:6px;border-radius:3px;width:${Math.round(pct)}%"></div>
+                </div>
+                <span style="font-size:.75rem;color:var(--muted)">${fmt(pct,1)} %</span>
+              </div>
+            </td>
+            <td class="r">${fmtE(r.val_prmp)}</td>
+            <td class="r">${fmtE(r.val_pmp)}</td>
+          </tr>`;
+        }).join('')}
+        <tr class="totaux-row">
+          <td>TOTAL</td><td class="r">—</td>
+          <td class="r">${fmt(totQte)}</td>
+          <td class="r">${fmtE(totCrump)}</td>
+          <td class="r">100 %</td>
+          <td class="r">${fmtE(totPrmp)}</td>
+          <td class="r">${fmtE(totPmp)}</td>
+        </tr>
+        </tbody></table>`;
+    } else {
+      el.innerHTML = `<table class="data-table">
+        <thead><tr>
+          <th>Référence</th><th>Désignation</th><th>Famille</th>
+          <th class="r">Stock réel</th>
+          <th class="r">PR CRUMP</th><th class="r">Valeur CRUMP</th>
+          <th class="r">PR PRMP</th><th class="r">Valeur PRMP</th>
+        </tr></thead><tbody>
+        ${rows.map(r=>`<tr>
+          <td><strong>${escH(r.ref||'')}</strong></td>
+          <td>${escH(r.designation||'')}</td>
+          <td style="color:var(--muted);font-size:.75rem">${escH(r.famille||'')}</td>
+          <td class="r">${fmt(r.stock_reel)}</td>
+          <td class="r">${fmtE(r.pr_crump)}</td>
+          <td class="r">${fmtE(r.val_crump)}</td>
+          <td class="r">${fmtE(r.pr_prmp)}</td>
+          <td class="r">${fmtE(r.val_prmp)}</td>
+        </tr>`).join('')}
+        <tr class="totaux-row">
+          <td colspan="3">TOTAL (${fmt(rows.length)} articles)</td>
+          <td class="r">${fmt(totQte)}</td>
+          <td class="r">—</td><td class="r">${fmtE(totCrump)}</td>
+          <td class="r">—</td><td class="r">${fmtE(totPrmp)}</td>
+        </tr>
+        </tbody></table>`;
+    }
+    setStatus(true);
+  } catch(e) { el.innerHTML=`<div class="empty" style="color:var(--red)">⚠ ${escH(e.message)}</div>`; setStatus(false); }
+}
+
+// ── Mouvements ────────────────────────────────────────────────────────────────
+async function loadMouvements() {
+  const el = qs('mvt-table');
+  el.innerHTML = '<div class="empty">Chargement…</div>';
+  const debut  = qs('mvt-debut').value;
+  const fin    = qs('mvt-fin').value;
+  const nature = qs('mvt-nature').value;
+  const limit  = qs('mvt-limit').value;
+  try {
+    const rows = await fetch(`${API}/mouvements?debut=${debut}&fin=${fin}&nature=${nature}&limit=${limit}${globalParams()}`).then(r=>r.json());
+    if (rows.error) throw new Error(rows.error);
+    if (!rows.length) { el.innerHTML='<div class="empty">Aucun mouvement.</div>'; return; }
+    el.innerHTML = `<table class="data-table">
+      <thead><tr>
+        <th>Date</th><th>Référence</th><th>Désignation</th><th>Famille</th>
+        <th>Dépôt</th><th>Nature</th>
+        <th class="r">Quantité</th>
+        <th class="r">Stock avant</th><th class="r">Stock après</th>
+        <th class="r">PR CRUMP</th><th class="r">PR PRMP</th>
+        <th>Intitulé</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>{
+        const qteCls = r.sens < 0 ? 'neg' : (r.sens > 0 ? 'ok' : '');
+        const sApres = parseFloat(r.stock_apres)||0;
+        const afterCls = sApres < 0 ? 'neg' : (sApres === 0 ? 'warn' : '');
+        return `<tr>
+          <td>${r.date_op ? formatDate(r.date_op) : '—'}</td>
+          <td><strong>${escH(r.ref||'')}</strong></td>
+          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${escH(r.designation||'')}</td>
+          <td style="color:var(--muted);font-size:.74rem">${escH(r.famille||'')}</td>
+          <td style="color:var(--muted);font-size:.74rem">${escH(r.depot||'')}</td>
+          <td><span class="badge ${r.sens>0?'badge-green':r.sens<0?'badge-red':'badge-orange'}">${escH(r.nature_lib||r.nature||'')}</span></td>
+          <td class="r ${qteCls}">${r.sens>0?'+':''}${fmt(r.qte)}</td>
+          <td class="r">${fmt(r.stock_avant)}</td>
+          <td class="r ${afterCls}">${fmt(r.stock_apres)}</td>
+          <td class="r">${r.pr_crump?fmtE(r.pr_crump):'—'}</td>
+          <td class="r">${r.pr_prmp?fmtE(r.pr_prmp):'—'}</td>
+          <td style="font-size:.74rem;color:var(--muted)">${escH(r.intitule||'')}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table>`;
+    setStatus(true);
+  } catch(e) { el.innerHTML=`<div class="empty" style="color:var(--red)">⚠ ${escH(e.message)}</div>`; setStatus(false); }
+}
+
+// ── Stock à date ──────────────────────────────────────────────────────────────
+async function loadADate() {
+  const el = qs('adate-table');
+  el.innerHTML = '<div class="empty">Chargement…</div>';
+  const date    = qs('adate-date').value;
+  const famille = qs('adate-famille').value;
+  const limit   = qs('adate-limit').value;
+  if (!date) { el.innerHTML='<div class="empty">Sélectionnez une date.</div>'; return; }
+  try {
+    const data = await fetch(`${API}/a-date?date=${date}&limit=${limit}${globalParams()}${famille?'&famille='+famille:''}`).then(r=>r.json());
+    if (data.error) throw new Error(data.error);
+    const rows = data.rows || [];
+    const tot  = data.totaux || {};
+
+    // Totaux KPIs
+    qs('adate-totaux').style.display = 'block';
+    qs('adate-kpis').innerHTML = `
+      <div class="kpi-card"><div class="kpi-label">Valeur CRUMP au ${escH(date)}</div><div class="kpi-val">${fmtE(tot.val_crump)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Valeur PRMP</div><div class="kpi-val">${fmtE(tot.val_prmp)}</div></div>
+      <div class="kpi-card ok"><div class="kpi-label">Quantité totale</div><div class="kpi-val">${fmt(tot.total_qte)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Articles avec stock</div><div class="kpi-val">${fmt(rows.length)}</div></div>`;
+
+    if (!rows.length) { el.innerHTML='<div class="empty">Aucun stock à cette date.</div>'; return; }
+    el.innerHTML = `<table class="data-table">
+      <thead><tr>
+        <th>Référence</th><th>Désignation</th><th>Famille</th><th>Dépôt</th>
+        <th class="r">Stock à date</th>
+        <th class="r">PR CRUMP</th><th class="r">Valeur CRUMP</th>
+        <th class="r">PR PRMP</th><th class="r">Valeur PRMP</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>`<tr>
+        <td><strong>${escH(r.ref||'')}</strong></td>
+        <td>${escH(r.designation||'')}</td>
+        <td style="color:var(--muted);font-size:.75rem">${escH(r.famille||'')}</td>
+        <td style="color:var(--muted);font-size:.75rem">${escH(r.depot||'')}</td>
+        <td class="r">${fmt(r.stock_qte)}</td>
+        <td class="r">${fmtE(r.pr_crump)}</td>
+        <td class="r">${fmtE(r.val_crump)}</td>
+        <td class="r">${fmtE(r.pr_prmp)}</td>
+        <td class="r">${fmtE(r.val_prmp)}</td>
+      </tr>`).join('')}
+      <tr class="totaux-row">
+        <td colspan="4">TOTAL</td>
+        <td class="r">${fmt(tot.total_qte)}</td>
+        <td class="r">—</td><td class="r">${fmtE(tot.val_crump)}</td>
+        <td class="r">—</td><td class="r">${fmtE(tot.val_prmp)}</td>
+      </tr>
+      </tbody></table>`;
+    setStatus(true);
+  } catch(e) { el.innerHTML=`<div class="empty" style="color:var(--red)">⚠ ${escH(e.message)}</div>`; setStatus(false); }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  // Dates par défaut pour mouvements
+  const now = new Date(), y = now.getFullYear(), m = String(now.getMonth()+1).padStart(2,'0');
+  qs('mvt-debut').value = `${y}-01-01`;
+  qs('mvt-fin').value   = now.toISOString().slice(0,10);
+  qs('adate-date').value = now.toISOString().slice(0,10);
+
+  try {
+    const filters = await fetch(`${API}/filters`).then(r=>r.json());
+    depots = filters.depots || [];
+    familles = filters.familles || [];
+    const fournisseurs = filters.fournisseurs || [];
+
+    // Sélecteur dépôt
+    const selDep = qs('sel-depot');
+    depots.forEach(d => {
+      const o = document.createElement('option');
+      o.value = d.DEPID; o.textContent = d.libelle + (d.principal ? ' ★' : '');
+      selDep.appendChild(o);
+    });
+
+    // Sélecteur fournisseur
+    const selFou = qs('sel-fournisseur');
+    fournisseurs.forEach(f => {
+      const o = document.createElement('option');
+      o.value = f.id; o.textContent = `${f.libelle} (${f.nb_articles})`;
+      selFou.appendChild(o);
+    });
+
+    // Sélecteurs famille (ruptures + valeur + adate)
+    const famHtml = '<option value="">Toutes</option>' + familles.map(f=>`<option value="${f.id}">${escH(f.libelle)}</option>`).join('');
+    ['rupt-famille','val-famille','adate-famille'].forEach(id=>{ const el=qs(id); if(el) el.innerHTML=famHtml; });
+  } catch(e) { console.warn('filters:', e.message); }
+
+  loadKpis();
+  loadEvolution();
+}
+
+init();
+</script>
+</body>
+</html>

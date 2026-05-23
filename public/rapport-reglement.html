@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Règlement clients — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
+      --text:#e2e8f0; --text-muted:#8892a4;
+      --green:#4CAF50; --orange:#FF9800; --red:#F44336; --blue:#2196F3;
+      --radius:12px; --gap:12px;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+    html.embedded header{display:none}
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
+      position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    header h1{font-size:1rem;font-weight:600;margin-right:8px;white-space:nowrap}
+    .filters{display:flex;flex-wrap:wrap;gap:8px;flex:1}
+    .filters select,.filters input{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer;max-width:220px}
+    .header-right{display:flex;align-items:center;gap:10px}
+    #status-dot{width:9px;height:9px;border-radius:50%;background:#666}
+    #status-dot.ok{background:var(--green)} #status-dot.error{background:var(--red)}
+    #last-update{font-size:.72rem;color:var(--text-muted);white-space:nowrap}
+    #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer}
+    #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
+    .container{padding:var(--gap);max-width:1400px;margin:0 auto}
+    .err-banner{background:#2a1a1a;border:1px solid var(--red);border-radius:var(--radius);
+      padding:10px 14px;color:var(--red);font-size:.85rem;margin-bottom:var(--gap);display:none}
+
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+    .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:14px 14px;border-left:4px solid var(--blue)}
+    .kpi-card.ratio{border-left-color:var(--green)}
+    .kpi-card.encours{border-left-color:var(--orange)}
+    .kpi-card.dso{border-left-color:var(--red)}
+    .kpi-label{font-size:.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+    .kpi-value{font-size:1.4rem;font-weight:700;line-height:1.1}
+    .kpi-sub{font-size:.7rem;color:var(--text-muted);margin-top:4px}
+
+    .chart-row{display:grid;gap:var(--gap);margin-bottom:var(--gap)}
+    .row-1{grid-template-columns:1fr}
+    .row-2{grid-template-columns:1fr}
+    @media (min-width:900px){.row-2{grid-template-columns:1fr 1fr}}
+    .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:14px 16px;display:flex;flex-direction:column}
+    .chart-card h3{font-size:.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
+    .chart-card .canvas-wrap{position:relative;flex:1;min-height:480px}
+    .chart-card canvas{max-height:none}
+    .no-data{color:var(--text-muted);font-size:.82rem;padding:20px 0;text-align:center}
+
+    .header-link{color:var(--text-muted);font-size:.78rem;text-decoration:none;padding:4px 8px;
+      border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+  </style>
+  <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+<header>
+  <h1>💶 Règlement clients<span id="header-context" style="margin-left:10px;font-size:.78rem;font-weight:500;color:var(--text-muted)"></span></h1>
+  <a href="/dashboard.html"  class="header-link">📊 Tableaux de bord & Rapports</a>
+  <a href="/tb-reporting.html" class="header-link">📈 TB Reporting</a>
+  <a href="/backoffice.html" class="header-link">⚙️ Backoffice</a>
+  <a href="/settings.html"   class="header-link">🔧 Paramètres</a>
+  <div class="filters">
+    <select id="sel-conn" onchange="onConnChange()" title="Source / connexion"></select>
+    <select id="sel-periode" onchange="loadAll()"></select>
+    <select id="sel-rep">
+      <option value="">Tous les commerciaux</option>
+    </select>
+    <select id="sel-actif" onchange="onActifChange()" title="Filtre commerciaux actifs/inactifs">
+      <option value="O" selected>Actifs uniquement</option>
+      <option value="N">Inactifs uniquement</option>
+      <option value="all">Tous (actifs + inactifs)</option>
+    </select>
+  </div>
+  <div class="header-right">
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button id="refresh-btn" onclick="loadAll()">↻ Actualiser</button>
+    <button onclick="AUTH.logout()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer">Déconnexion</button>
+  </div>
+</header>
+
+<div class="container">
+  <div class="err-banner" id="err-banner"></div>
+
+  <div class="kpi-grid">
+    <div class="kpi-card ratio">
+      <div class="kpi-label">DSO global</div>
+      <div class="kpi-value" id="kpi-ratio">—</div>
+      <div class="kpi-sub" id="kpi-ratio-sub"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Facturé TTC</div>
+      <div class="kpi-value" id="kpi-facture">—</div>
+    </div>
+    <div class="kpi-card encours">
+      <div class="kpi-label">Créances clients</div>
+      <div class="kpi-value" id="kpi-encours">—</div>
+    </div>
+    <div class="kpi-card dso">
+      <div class="kpi-label">DSO (jours)</div>
+      <div class="kpi-value" id="kpi-dso">—</div>
+      <div class="kpi-sub">Créances ÷ CA × période</div>
+    </div>
+  </div>
+
+  <div class="chart-row row-2">
+    <div class="chart-card">
+      <h3>🟡 Top 50 payeurs moyens <span id="moyens-thr" style="color:var(--text-muted);font-weight:400;font-size:.7rem"></span></h3>
+      <div class="canvas-wrap"><canvas id="chart-moyens"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>🔴 Top 50 mauvais payeurs <span id="mauvais-thr" style="color:var(--text-muted);font-weight:400;font-size:.7rem"></span></h3>
+      <div class="canvas-wrap"><canvas id="chart-mauvais"></canvas></div>
+    </div>
+  </div>
+
+  <div class="chart-row row-1">
+    <div class="chart-card">
+      <h3>Ratio par commercial <span style="color:var(--text-muted);font-weight:400;font-size:.7rem">(clic sur une barre → tous les clients du commercial)</span></h3>
+      <div class="canvas-wrap"><canvas id="chart-rep"></canvas></div>
+    </div>
+  </div>
+
+  <div class="chart-row row-1" id="drill-row" style="display:none">
+    <div class="chart-card">
+      <h3 id="drill-title">Clients du commercial</h3>
+      <div class="canvas-wrap" style="min-height:380px"><canvas id="chart-drill"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/commercial';
+const charts = {};
+
+// Récupère du JSON en remontant le vrai message d'erreur serveur (et pas un JSON.parse trompeur)
+async function fetchJson(url) {
+  const r = await fetch(url);
+  const txt = await r.text();
+  let data = null;
+  try { data = txt ? JSON.parse(txt) : null; } catch { /* pas du JSON */ }
+  if (!r.ok) {
+    const msg = (data && data.error) ? data.error : (txt ? txt.slice(0, 200) : `HTTP ${r.status}`);
+    throw new Error(`[${r.status}] ${msg}`);
+  }
+  if (data === null) throw new Error('Réponse serveur vide ou non-JSON');
+  return data;
+}
+
+const qs = id => document.getElementById(id);
+const fmt = v => new Intl.NumberFormat('fr-FR',{maximumFractionDigits:0}).format(v||0);
+const fmtEuro = v => fmt(v) + ' €';
+const fmtPct  = v => (Math.round((parseFloat(v)||0)*10)/10).toLocaleString('fr-FR') + '%';
+const fmtJours = v => (Math.round((parseFloat(v)||0)*10)/10).toLocaleString('fr-FR') + ' j';
+
+let currentConnId = '';
+let allConnections = [];
+let exercices = [];
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function isoDate(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+
+// ── Connexion ─────────────────────────────────────────────────
+async function loadConnectionsList() {
+  try { allConnections = await fetch('/api/settings/connections').then(r => r.ok ? r.json() : []); } catch { allConnections = []; }
+  const sel = qs('sel-conn');
+  const u = AUTH.getUser();
+  const principalLabel = u?.societe || u?.database || 'Défaut';
+  let html = `<option value="">${escapeText(principalLabel)}</option>`;
+  if (allConnections.length) html += allConnections.map(c => `<option value="${c.id}">${escapeText(c.label || c.id)}</option>`).join('');
+  sel.innerHTML = html; sel.value = currentConnId;
+}
+function escapeText(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function onConnChange() {
+  currentConnId = qs('sel-conn').value || '';
+  await initFilters();
+  loadAll();
+  renderHeaderContext();
+}
+
+function renderHeaderContext() {
+  const ctx = qs('header-context');
+  if (currentConnId) {
+    const conn = allConnections.find(c => c.id === currentConnId);
+    ctx.textContent = conn ? `· 🏢 ${conn.label || ''} · 🗄️ ${conn.database || ''}` : '';
+  } else {
+    const u = AUTH.getUser();
+    const parts = [];
+    if (u?.societe)  parts.push(`🏢 ${u.societe}`);
+    if (u?.database) parts.push(`🗄️ ${u.database}`);
+    ctx.textContent = parts.length ? '· ' + parts.join(' · ') : '';
+  }
+}
+
+function onActifChange() { initFilters().then(loadAll); }
+
+// ── Filtres / période ─────────────────────────────────────────
+function buildBaseQS() {
+  const params = new URLSearchParams();
+  if (currentConnId) params.set('connId', currentConnId);
+  const actif = qs('sel-actif').value; if (actif) params.set('actif', actif);
+  const repid = qs('sel-rep').value;   if (repid) params.set('repid', repid);
+  const periode = qs('sel-periode').value;
+  if (periode.startsWith('exe:') || periode.startsWith('ytd_exe:') || periode.startsWith('cal:')) {
+    // Le serveur lit la période via resolvePeriod sur ses propres params, on transmet juste la période standard
+  }
+  // Le serveur attend dateDebut/dateFin OU un param période simple ; adaptons :
+  const f = computeDates(periode);
+  if (f.dateDebut) params.set('dateDebut', f.dateDebut);
+  if (f.dateFin)   params.set('dateFin',   f.dateFin);
+  return params.toString();
+}
+
+function computeDates(val) {
+  const today = new Date();
+  if (val.startsWith('ytd_exe:')) {
+    const [, d0] = val.split(':');
+    return { dateDebut: d0, dateFin: isoDate(today) };
+  }
+  if (val.startsWith('exe:')) {
+    const [, d0, d1] = val.split(':');
+    return { dateDebut: d0, dateFin: d1 };
+  }
+  if (val.startsWith('cal:')) {
+    const y = parseInt(val.slice(4));
+    return { dateDebut: `${y}-01-01`, dateFin: `${y}-12-31` };
+  }
+  if (val === 'month') {
+    const y = today.getFullYear(), m = today.getMonth()+1;
+    const last = new Date(y, m, 0).getDate();
+    return { dateDebut: `${y}-${pad(m)}-01`, dateFin: `${y}-${pad(m)}-${pad(last)}` };
+  }
+  if (val === '30j')  return { dateDebut: isoDate(new Date(today - 30*86400000)), dateFin: isoDate(today) };
+  if (val === '90j')  return { dateDebut: isoDate(new Date(today - 90*86400000)), dateFin: isoDate(today) };
+  if (val === '12m')  { const d = new Date(today); d.setMonth(d.getMonth()-12); return { dateDebut: isoDate(d), dateFin: isoDate(today) }; }
+  // ytd par défaut
+  return { dateDebut: `${today.getFullYear()}-01-01`, dateFin: isoDate(today) };
+}
+
+async function initFilters() {
+  // Si la page est embarquée (dashboard), respecter le param URL `actif` au 1er init —
+  // sinon utiliser la valeur du <select> (par défaut 'all').
+  const urlActif = new URLSearchParams(location.search).get('actif');
+  if (urlActif === 'O' || urlActif === 'N' || urlActif === 'all') {
+    const sa = qs('sel-actif'); if (sa && sa.value !== urlActif) sa.value = urlActif;
+  }
+  // Charge la liste des commerciaux en respectant le filtre actif (Tous/Actifs/Inactifs)
+  const params = new URLSearchParams();
+  if (currentConnId) params.set('connId', currentConnId);
+  const actifSel = qs('sel-actif')?.value || 'O';
+  params.set('actif', actifSel);
+  const qsStr = params.toString();
+  const data = await fetch(`${API}/filters${qsStr ? '?' + qsStr : ''}`).then(r => { if (r.status===401) AUTH.logout('Session expirée'); return r.json(); });
+  exercices = data.exercices || [];
+
+  // Périodes
+  const sel = qs('sel-periode');
+  const today = new Date();
+  const todayStr = isoDate(today);
+  const curExe = exercices.find(e => e.date_debut <= todayStr && todayStr <= e.date_fin);
+  let html = '';
+  // Pour le rapport règlement, par défaut on cale sur 12 mois glissants
+  // (DSO cohérent : créances actuelles × jours / CA sur 12 mois)
+  html += `<optgroup label="─ Glissant ─">`;
+  html += `<option value="12m" selected>12 mois glissants</option>`;
+  html += `<option value="ytd">YTD calendaire</option>`;
+  html += `<option value="month">Mois en cours</option>`;
+  html += `<option value="30j">30 derniers jours</option>`;
+  html += `<option value="90j">90 derniers jours</option>`;
+  html += `</optgroup>`;
+  if (exercices.length) {
+    html += `<optgroup label="─ YTD exercice ─">`;
+    exercices.forEach(e => {
+      const lbl = e.libelle || `Exercice ${e.annee_debut === e.annee_fin ? e.annee_debut : `${e.annee_debut}/${e.annee_fin}`}`;
+      html += `<option value="ytd_exe:${e.date_debut}:${e.date_fin}">YTD ${lbl}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+  if ((data.annees||[]).length) {
+    html += `<optgroup label="─ Années ─">`;
+    data.annees.forEach(y => html += `<option value="cal:${y}">${y}</option>`);
+    html += `</optgroup>`;
+  }
+  if (exercices.length) {
+    html += `<optgroup label="─ Exercices ─">`;
+    exercices.forEach(e => {
+      const lbl = e.libelle || `Exercice ${e.annee_debut === e.annee_fin ? e.annee_debut : `${e.annee_debut}/${e.annee_fin}`}`;
+      html += `<option value="exe:${e.date_debut}:${e.date_fin}">${lbl}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+  sel.innerHTML = html;
+
+  // Commerciaux (filtré par actif via /filters)
+  const repSel = qs('sel-rep');
+  const cur = repSel.value;
+  let repHtml = '<option value="">Tous les commerciaux</option>';
+  (data.commerciaux || []).forEach(c => {
+    repHtml += `<option value="${c.TIRID}">${escapeText(c.nom)}</option>`;
+  });
+  repSel.innerHTML = repHtml;
+  if (cur) repSel.value = cur;
+  repSel.onchange = loadAll;
+}
+
+// ── KPIs globaux ──────────────────────────────────────────────
+async function loadSummary() {
+  const data = await fetchJson(`${API}/reglement-summary?${buildBaseQS()}`);
+  qs('kpi-ratio').textContent   = fmtJours(data.dso);
+  qs('kpi-ratio-sub').textContent = `${data.nb_clients||0} client${(data.nb_clients||0)>1?'s':''} · ${data.nb_commerciaux||0} commerciaux`;
+  qs('kpi-facture').textContent = fmtEuro(data.facture);
+  qs('kpi-encours').textContent = fmtEuro(data.encours);
+  qs('kpi-dso').textContent     = fmt(data.dso);
+  return data;
+}
+
+// ── Bons / mauvais payeurs ────────────────────────────────────
+// DSO en jours : bas = bon (vert), haut = mauvais (rouge)
+function colorRatio(r) {
+  return r <= 30 ? '#4CAF50' : r <= 60 ? '#FF9800' : '#F44336';
+}
+function tooltipClient(r) {
+  return [
+    ` DSO : ${fmtJours(r.ratio)}`,
+    ` Facturé TTC : ${fmtEuro(r.facture)}`,
+    ` Créances : ${fmtEuro(r.encours)}`,
+  ];
+}
+
+function renderClientsBar(canvasId, rows, chartKey, metric) {
+  const ctx = qs(canvasId).getContext('2d');
+  if (charts[chartKey]) charts[chartKey].destroy();
+  if (!rows.length) return;
+  const useEncours = metric === 'encours';
+  const xTick = useEncours ? (v => fmtEuro(v)) : (v => v + ' j');
+  charts[chartKey] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.label),
+      datasets: [{
+        data: rows.map(r => parseFloat(useEncours ? r.encours : r.ratio) || 0),
+        backgroundColor: rows.map(r => colorRatio(r.ratio)),
+        borderWidth: 1
+      }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => tooltipClient(rows[c.dataIndex]) } } },
+      scales: {
+        x: { ticks: { color: '#8892a4', callback: xTick }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#e2e8f0', font: { size: 11 }, autoSkip: false }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// Hauteur dynamique : 24 px par barre, plancher 380, plafond 1500
+function sizeChartWrap(canvasId, nbRows) {
+  const wrap = qs(canvasId).parentElement;
+  wrap.style.minHeight = Math.max(380, Math.min(1500, nbRows * 24 + 60)) + 'px';
+}
+async function loadMoyens(dsoMoyen) {
+  // Top 50 payeurs moyens : DSO ≤ DSO global, classés par créances DESC
+  const thr = (dsoMoyen > 0) ? dsoMoyen : 360;
+  qs('moyens-thr').textContent = `(DSO ≤ ${fmtJours(thr)})`;
+  const rows = await fetchJson(`${API}/reglement-clients?${buildBaseQS()}&limit=50&sort=encours&order=desc&maxRatio=${thr}`);
+  sizeChartWrap('chart-moyens', rows.length);
+  renderClientsBar('chart-moyens', rows, 'moyens', 'encours');
+}
+async function loadMauvais(dsoMoyen) {
+  // Top 50 mauvais payeurs : DSO > DSO global, classés par créances DESC
+  const thr = (dsoMoyen > 0) ? dsoMoyen : 0;
+  qs('mauvais-thr').textContent = thr > 0 ? `(DSO > ${fmtJours(thr)})` : '';
+  const params = `${buildBaseQS()}&limit=50&sort=encours&order=desc` + (thr > 0 ? `&minRatio=${thr}` : '');
+  const rows = await fetchJson(`${API}/reglement-clients?${params}`);
+  sizeChartWrap('chart-mauvais', rows.length);
+  renderClientsBar('chart-mauvais', rows, 'mauvais', 'encours');
+}
+
+// ── Ratio par commercial ──────────────────────────────────────
+async function loadCommerciaux() {
+  const rows = await fetchJson(`${API}/reglement-commerciaux?${buildBaseQS()}&limit=20`);
+  const ctx = qs('chart-rep').getContext('2d');
+  if (charts.rep) charts.rep.destroy();
+  if (!rows.length) return;
+  charts.rep = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.label),
+      datasets: [{ data: rows.map(r => parseFloat(r.ratio)||0), backgroundColor: rows.map(r => colorRatio(r.ratio)), borderWidth: 1 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      onClick: (evt, items) => {
+        if (!items?.length) return;
+        const r = rows[items[0].index];
+        loadDrilldown(r.TIRID, r.label);
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => {
+          const r = rows[c.dataIndex];
+          return [
+            ` Ratio : ${fmtPct(r.ratio)}`,
+            ` ${r.nb_clients} client${r.nb_clients>1?'s':''}`,
+            ` Facturé TTC : ${fmtEuro(r.facture)}`,
+            ` Encours : ${fmtEuro(r.encours)}`,
+            ` DSO ≈ ${parseFloat(r.dso).toFixed(1)} j`,
+          ];
+        }}}
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4', callback: v => v+' j' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#e2e8f0', font: { size: 11 }, autoSkip: false }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+async function loadDrilldown(repid, repLabel) {
+  const params = new URLSearchParams(buildBaseQS());
+  params.set('repid', repid);
+  params.set('limit', '500');   // tous les clients du commercial (capé à 500 côté serveur)
+  params.set('order', 'desc');  // mauvais payeurs en premier (DSO le plus élevé)
+  const rows = await fetchJson(`${API}/reglement-clients?${params.toString()}`);
+  qs('drill-row').style.display = '';
+
+  // DSO global pondéré du commercial (sur tous ses clients)
+  const tot = rows.reduce((a, r) => ({
+    f: a.f + (parseFloat(r.facture)||0),
+    r: a.r + (parseFloat(r.regle)||0),
+    e: a.e + (parseFloat(r.encours)||0),
+  }), { f:0, r:0, e:0 });
+  const periode = computeDates(qs('sel-periode').value);
+  const days = Math.max(1, Math.round((new Date(periode.dateFin) - new Date(periode.dateDebut)) / 86400000));
+  const dso = tot.f > 0 ? (tot.e * days / tot.f) : 0;
+  qs('drill-title').innerHTML = `Tous les clients de ${escapeText(repLabel)} (${rows.length}) — DSO global <strong style="color:${colorRatio(dso)}">${fmtJours(dso)}</strong> — Créances ${fmtEuro(tot.e)}`;
+
+  // Hauteur dynamique : 24 px par client minimum 380, max 1500
+  const wrap = qs('chart-drill').parentElement;
+  wrap.style.minHeight = Math.max(380, Math.min(1500, rows.length * 24 + 60)) + 'px';
+
+  renderClientsBar('chart-drill', rows, 'drill');
+}
+
+// ── Chargement global ─────────────────────────────────────────
+async function loadAll() {
+  const btn = qs('refresh-btn');
+  const dot = qs('status-dot');
+  const banner = qs('err-banner');
+  btn.disabled = true; btn.textContent = '…';
+  qs('drill-row').style.display = 'none';
+  try {
+    const summary = await loadSummary();
+    const dsoMoyen = parseFloat(summary?.dso) || 0;
+    await Promise.all([loadMoyens(dsoMoyen), loadMauvais(dsoMoyen), loadCommerciaux()]);
+    dot.className = 'ok'; banner.style.display = 'none';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch (e) {
+    dot.className = 'error';
+    banner.textContent = 'Erreur : ' + (e.message || e);
+    banner.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+// ── Démarrage ─────────────────────────────────────────────────
+renderHeaderContext();
+loadConnectionsList().then(initFilters).then(loadAll);
+</script>
+</body>
+</html>

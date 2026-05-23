@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion — TB Reporting</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',sans-serif;background:#0f1117;color:#e2e8f0;
+    display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;padding:40px 36px;
+    width:380px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+  .logo{text-align:center;margin-bottom:28px;font-size:1.4rem;font-weight:700;color:#7c83fd}
+  .logo small{display:block;font-size:.75rem;color:#94a3b8;font-weight:400;margin-top:4px}
+  label{display:block;font-size:.78rem;color:#94a3b8;margin-bottom:5px;margin-top:16px}
+  input, select{width:100%;background:#0f1117;border:1px solid #2a2d3e;border-radius:6px;
+    padding:9px 12px;color:#e2e8f0;font-size:.9rem;outline:none;transition:border .2s;
+    appearance:none;-webkit-appearance:none}
+  select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;cursor:pointer}
+  select option{background:#1a1d2e}
+  input:focus, select:focus{border-color:#7c83fd}
+  select:disabled{opacity:.5;cursor:not-allowed}
+  .db-loading{font-size:.78rem;color:#64748b;margin-top:6px;display:none}
+  .db-error{font-size:.78rem;color:#f87171;margin-top:6px;display:none}
+  button{width:100%;margin-top:24px;background:#7c83fd;border:none;border-radius:6px;
+    padding:10px;color:#fff;font-size:.9rem;font-weight:600;cursor:pointer;transition:background .2s}
+  button:hover{background:#6b72e8}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  .err{background:#3b1515;border:1px solid #7f1d1d;color:#fca5a5;border-radius:6px;
+    padding:10px 12px;font-size:.82rem;margin-top:16px;display:none}
+  .db-badge{display:inline-block;font-size:.7rem;color:#64748b;margin-left:6px;font-weight:400}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    📊 TB Reporting
+    <small>Veuillez vous connecter pour continuer</small>
+  </div>
+  <form id="login-form" onsubmit="doLogin(event)">
+    <label for="db-select">Base de données <span class="db-badge" id="db-badge"></span></label>
+    <select id="db-select" disabled>
+      <option value="">Chargement…</option>
+    </select>
+    <div class="db-loading" id="db-loading">Connexion au serveur…</div>
+    <div class="db-error" id="db-error"></div>
+
+    <label for="username">Identifiant</label>
+    <input id="username" type="text" autocomplete="username" autofocus placeholder="admin">
+    <label for="password">Mot de passe</label>
+    <input id="password" type="password" autocomplete="current-password" placeholder="••••••••">
+    <div class="err" id="err-msg"></div>
+    <button type="submit" id="submit-btn" disabled>Connexion</button>
+  </form>
+</div>
+<script>
+async function loadDatabases() {
+  const sel = document.getElementById('db-select');
+  const loading = document.getElementById('db-loading');
+  const dbErr = document.getElementById('db-error');
+  const btn = document.getElementById('submit-btn');
+  loading.style.display = 'block';
+  try {
+    const res = await fetch('/api/auth/databases');
+    const dbs = await res.json();
+    if (!res.ok) throw new Error(dbs.error || 'Erreur serveur');
+    sel.innerHTML = '';
+    if (!dbs.length) {
+      sel.innerHTML = '<option value="">Aucune base disponible</option>';
+      return;
+    }
+    dbs.forEach(db => {
+      const opt = document.createElement('option');
+      opt.value = db.name;
+      opt.textContent = db.label !== db.name ? `${db.label}  (${db.name})` : db.name;
+      sel.appendChild(opt);
+    });
+    sel.disabled = false;
+    btn.disabled = false;
+    document.getElementById('db-badge').textContent = `${dbs.length} disponible${dbs.length > 1 ? 's' : ''}`;
+  } catch (e) {
+    dbErr.textContent = 'Impossible de lister les bases : ' + e.message;
+    dbErr.style.display = 'block';
+    sel.innerHTML = '<option value="">Erreur de connexion</option>';
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function doLogin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('submit-btn');
+  const err = document.getElementById('err-msg');
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const database = document.getElementById('db-select').value;
+  if (!username || !password) { showErr('Veuillez remplir tous les champs'); return; }
+  if (!database) { showErr('Veuillez sélectionner une base de données'); return; }
+  btn.disabled = true; btn.textContent = 'Connexion…'; err.style.display = 'none';
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, database })
+    });
+    const data = await res.json();
+    if (!res.ok) { showErr(data.error || 'Erreur de connexion'); return; }
+    localStorage.setItem('tb_token', data.token);
+    localStorage.setItem('tb_user', JSON.stringify(data.user));
+    const redirect = new URLSearchParams(location.search).get('redirect') || '/dashboard.html';
+    location.href = redirect;
+  } catch {
+    showErr('Erreur réseau, veuillez réessayer');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Connexion';
+  }
+}
+
+function showErr(msg) {
+  const err = document.getElementById('err-msg');
+  err.textContent = msg; err.style.display = 'block';
+}
+
+// Already logged in?
+if (localStorage.getItem('tb_token')) {
+  const redirect = new URLSearchParams(location.search).get('redirect') || '/dashboard.html';
+  location.href = redirect;
+} else {
+  loadDatabases();
+}
+</script>
+</body>
+</html>

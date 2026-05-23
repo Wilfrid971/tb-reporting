@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rapport Prix — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
+      --text:#e2e8f0; --muted:#8892a4; --blue:#2196F3; --green:#4CAF50;
+      --orange:#FF9800; --red:#F44336; --purple:#9C27B0; --radius:10px; --gap:14px;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+    html.embedded header{display:none}
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+    header h1{font-size:1rem;font-weight:600;white-space:nowrap}
+    .nav-link{color:var(--muted);font-size:.78rem;text-decoration:none;padding:4px 10px;
+      border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+    .nav-link:hover{color:var(--text);border-color:var(--blue)}
+    .spacer{flex:1}
+    .hdr-right{display:flex;align-items:center;gap:8px}
+    #last-update{font-size:.72rem;color:var(--muted)}
+    #status-dot{width:9px;height:9px;border-radius:50%;background:#666;flex-shrink:0}
+    #status-dot.ok{background:var(--green)} #status-dot.err{background:var(--red)}
+    #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;
+      border-radius:6px;font-size:.8rem;cursor:pointer}
+    #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
+    .csv-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);
+      padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer}
+    .csv-btn:hover{border-color:var(--green);color:var(--green)}
+
+    select, input[type=date], input[type=number], input[type=search]{
+      background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer}
+    input[type=search]{min-width:180px;cursor:text}
+
+    .container{max-width:1500px;margin:0 auto;padding:var(--gap)}
+    .error-banner{background:#2a1a1a;border:1px solid var(--red);border-radius:var(--radius);
+      padding:10px 14px;color:var(--red);font-size:.85rem;margin-bottom:var(--gap);display:none}
+
+    /* ── KPI cards ── */
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+      gap:var(--gap);margin-bottom:var(--gap)}
+    .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:12px 14px}
+    .kpi-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+    .kpi-val{font-size:1.4rem;font-weight:700}
+    .kpi-sub{font-size:.72rem;color:var(--muted);margin-top:3px}
+
+    /* ── Sections ── */
+    .section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      margin-bottom:var(--gap);overflow:hidden}
+    .section-header{display:flex;align-items:center;gap:10px;padding:12px 16px;
+      background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap}
+    .section-icon{font-size:1.1rem}
+    .section-title{font-size:.9rem;font-weight:700}
+    .section-sub{font-size:.75rem;color:var(--muted);margin-left:auto}
+
+    /* ── Tables ── */
+    .tbl-wrap{overflow-x:auto;max-height:70vh;overflow-y:auto}
+    table.data{width:100%;border-collapse:collapse;font-size:.78rem}
+    table.data th,table.data td{padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+    table.data thead th{position:sticky;top:0;background:var(--surface2);color:var(--muted);
+      font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:.7rem;cursor:pointer;user-select:none}
+    table.data thead th:hover{color:var(--text)}
+    table.data thead th.sortable::after{content:' ⇅';color:var(--muted);font-size:.7rem;opacity:.5}
+    table.data thead th.sorted-asc::after{content:' ▲';color:var(--blue);opacity:1}
+    table.data thead th.sorted-desc::after{content:' ▼';color:var(--blue);opacity:1}
+    table.data th.txt,table.data td.txt{text-align:left}
+    table.data tbody tr:hover{background:var(--surface2)}
+    table.data .clickable{cursor:pointer;color:var(--blue)}
+    table.data .clickable:hover{text-decoration:underline}
+
+    .ec-good{color:var(--green)}     /* je suis moins cher (négatif ou nul) */
+    .ec-warn{color:var(--orange)}    /* je suis un peu plus cher (0-5%) */
+    .ec-bad {color:var(--red);font-weight:600}  /* je suis sensiblement plus cher (>5%) */
+    .ec-na  {color:var(--muted)}
+
+    .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.65rem;
+      font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+    .b-direct{background:#1d3a25;color:var(--green)}
+    .b-via   {background:#1d2d3a;color:var(--blue)}
+    .b-conc  {background:#3a2a1d;color:var(--orange)}
+    .b-orph  {background:#3a1d2d;color:var(--red)}
+
+    .empty{padding:30px;text-align:center;color:var(--muted);font-style:italic}
+    .skeleton{animation:pulse 1.4s ease-in-out infinite;background:var(--border);border-radius:4px;display:inline-block;width:60px;height:14px}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+    /* ── Drill-down modal ── */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;
+      justify-content:center;z-index:100;padding:20px}
+    .modal-bg.open{display:flex}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      max-width:1100px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}
+    .modal-header{padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface2);
+      display:flex;align-items:center;gap:10px}
+    .modal-header h2{font-size:.95rem;font-weight:700}
+    .modal-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:1.4rem;
+      cursor:pointer;padding:0 5px}
+    .modal-close:hover{color:var(--text)}
+    .modal-body{padding:0;overflow-y:auto;flex:1}
+  </style>
+  <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+
+<header>
+  <h1>💰 Rapport Prix — Relevés concurrents</h1>
+  <a class="nav-link" href="/tb-reporting.html">← TB Reporting</a>
+  <a class="nav-link" href="/dashboard.html">📋 Rapports</a>
+  <a class="nav-link" href="/backoffice.html">⚙️ Backoffice</a>
+  <input type="date" id="f-d0" title="Date de début">
+  <input type="date" id="f-d1" title="Date de fin">
+  <select id="f-tirid" title="Client visité"><option value="">Tous les clients</option></select>
+  <select id="f-marque" title="Marque"><option value="">Toutes marques</option></select>
+  <select id="f-rep" title="Représentant"><option value="">Tous les représentants</option></select>
+  <select id="f-match" title="Type de rapprochement">
+    <option value="">Tous rapprochements</option>
+    <option value="direct">Direct (mon article)</option>
+    <option value="via_concurrent">Via concurrent (mappé)</option>
+    <option value="concurrent_seul">Concurrent seul (non mappé)</option>
+    <option value="orphelin">Orphelin (aucun rapprochement)</option>
+  </select>
+  <select id="f-mode" title="Mode d'affichage des prix">
+    <option value="ttc">Affichage TTC</option>
+    <option value="ht">Affichage HT</option>
+  </select>
+  <label style="font-size:.75rem;color:var(--muted)">TVA :
+    <input type="number" id="f-tva" value="8.5" min="0" max="100" step="0.1" style="width:60px;cursor:text"> %
+  </label>
+  <input type="search" id="f-q" placeholder="🔍 Recherche article…">
+  <div class="spacer"></div>
+  <div class="hdr-right">
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button class="csv-btn" id="csv-btn" title="Export CSV du tableau écarts">⬇ CSV</button>
+    <button id="refresh-btn">↻ Actualiser</button>
+  </div>
+</header>
+
+<div class="container">
+  <div id="error-banner" class="error-banner"></div>
+
+  <!-- KPIs synthétiques -->
+  <div class="kpi-grid" id="kpis">
+    <div class="kpi-card"><div class="kpi-label">Relevés</div><div class="kpi-val"><span class="skeleton"></span></div></div>
+    <div class="kpi-card"><div class="kpi-label">Références distinctes</div><div class="kpi-val"><span class="skeleton"></span></div></div>
+    <div class="kpi-card"><div class="kpi-label">Clients visités</div><div class="kpi-val"><span class="skeleton"></span></div></div>
+    <div class="kpi-card"><div class="kpi-label">Articles propres couverts</div><div class="kpi-val"><span class="skeleton"></span></div></div>
+    <div class="kpi-card"><div class="kpi-label">Prix relevé moyen</div><div class="kpi-val"><span class="skeleton"></span></div></div>
+  </div>
+
+  <!-- Top à risque -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-icon">🚨</span>
+      <span class="section-title">Top articles à risque</span>
+      <label style="font-size:.75rem;color:var(--muted)">Seuil écart :
+        <input type="number" id="f-seuil" value="5" min="0" max="100" step="1" style="width:60px;cursor:text"> %
+      </label>
+      <span class="section-sub" id="risques-sub">—</span>
+    </div>
+    <div class="tbl-wrap" style="max-height:380px">
+      <table class="data" id="tbl-risques">
+        <thead>
+          <tr>
+            <th class="txt sortable" data-k="ARTCODE">Article</th>
+            <th class="txt sortable" data-k="designation">Désignation</th>
+            <th class="txt sortable" data-k="marque">Marque</th>
+            <th class="sortable" data-k="nb_releves">Nb relevés</th>
+            <th class="sortable" data-k="nb_clients">Nb clients</th>
+            <th class="sortable" data-k="prix_concurrent_moyen">Prix relevé moy. <span class="th-mode">TTC</span></th>
+            <th class="sortable" data-k="pv_moyen_ht">Mon PV moyen <span class="th-mode">TTC</span></th>
+            <th class="sortable" data-k="ecart_pct">Écart %</th>
+            <th class="sortable" data-k="ca_net_ht">Mon CA HT</th>
+            <th class="sortable" data-k="date_dernier_releve">Dernier relevé</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="10" class="empty">Chargement…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tableau écarts complet -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-icon">📊</span>
+      <span class="section-title">Comparatif détaillé par article</span>
+      <span class="section-sub" id="ecarts-sub">—</span>
+    </div>
+    <div class="tbl-wrap">
+      <table class="data" id="tbl-ecarts">
+        <thead>
+          <tr>
+            <th class="txt sortable" data-k="match_type">Type</th>
+            <th class="txt sortable" data-k="reference_article">Réf. relevé</th>
+            <th class="txt sortable" data-k="designation_releve">Désignation</th>
+            <th class="txt sortable" data-k="artcode">Mon article</th>
+            <th class="txt sortable" data-k="marque">Marque</th>
+            <th class="sortable" data-k="nb_releves">Nb</th>
+            <th class="sortable" data-k="nb_clients">Clients</th>
+            <th class="sortable" data-k="prix_min">Min <span class="th-mode">TTC</span></th>
+            <th class="sortable" data-k="prix_moyen">Moyen <span class="th-mode">TTC</span></th>
+            <th class="sortable" data-k="prix_max">Max <span class="th-mode">TTC</span></th>
+            <th class="sortable" data-k="prix_promo_moyen">Promo moy. <span class="th-mode">TTC</span></th>
+            <th class="sortable" data-k="pv_moyen_ht">Mon PV <span class="th-mode">TTC</span></th>
+            <th class="sortable" data-k="ecart_pct">Écart %</th>
+            <th class="sortable" data-k="ca_net_ht">Mon CA HT</th>
+            <th class="sortable" data-k="date_dernier_releve">Dernier</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="15" class="empty">Chargement…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Drill-down modal : liste des relevés bruts pour un article -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <div class="modal-header">
+      <span style="font-size:1.1rem">🔎</span>
+      <h2 id="modal-title">Détail des relevés</h2>
+      <button class="modal-close" onclick="closeDetail()">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+const API = '/api/prix';
+
+// État global pour tri + filtre texte
+const state = {
+  ecarts:   { rows: [], sortKey: 'nb_releves',  sortDir: 'desc' },
+  risques:  { rows: [], sortKey: 'ca_net_ht',   sortDir: 'desc' },
+};
+
+function qs(id) { return document.getElementById(id); }
+function fmt(n, dec = 0) {
+  if (n === null || n === undefined || isNaN(+n)) return '—';
+  return new Intl.NumberFormat('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(+n);
+}
+function fmtEur(n, dec = 2) { return n == null || isNaN(+n) ? '—' : fmt(n, dec) + ' €'; }
+function fmtDate(s) {
+  if (!s) return '—';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+}
+function escH(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+// JSON-encode pour attribut HTML (double-quote-safe) : JSON puis HTML-escape
+function jsArg(v) { return escH(JSON.stringify(v == null ? null : String(v))); }
+
+function ecartClass(p) {
+  if (p === null || p === undefined || isNaN(+p)) return 'ec-na';
+  const v = +p;
+  if (v >  5) return 'ec-bad';
+  if (v >  0) return 'ec-warn';
+  return 'ec-good';
+}
+
+function badgeMatch(t) {
+  const map = {
+    direct:          ['b-direct', 'Direct'],
+    via_concurrent:  ['b-via',    'Via concurrent'],
+    concurrent_seul: ['b-conc',   'Concurrent'],
+    orphelin:        ['b-orph',   'Orphelin'],
+  };
+  const [cls, lbl] = map[t] || ['b-orph', t || '—'];
+  return `<span class="badge ${cls}">${lbl}</span>`;
+}
+
+function getTva() {
+  const v = parseFloat(qs('f-tva').value);
+  return isFinite(v) && v >= 0 && v <= 100 ? v : 8.5;
+}
+function isHT() { return qs('f-mode').value === 'ht'; }
+// Conversion d'un prix relevé (stocké TTC) vers le mode d'affichage choisi
+function dispReleve(v) {
+  if (v == null || isNaN(+v)) return null;
+  return isHT() ? +v / (1 + getTva() / 100) : +v;
+}
+// Conversion de mon PV (stocké HT) vers le mode d'affichage choisi
+function dispMonPv(v) {
+  if (v == null || isNaN(+v)) return null;
+  return isHT() ? +v : +v * (1 + getTva() / 100);
+}
+
+function buildQS(extra) {
+  const p = new URLSearchParams();
+  const d0 = qs('f-d0').value, d1 = qs('f-d1').value;
+  if (d0) p.set('date_debut', d0);
+  if (d1) p.set('date_fin',   d1);
+  const tirid = qs('f-tirid').value;
+  const marque = qs('f-marque').value;
+  const rep    = qs('f-rep').value;
+  const mt     = qs('f-match').value;
+  if (tirid)  p.set('tirid', tirid);
+  if (marque) p.set('marque', marque);
+  if (rep)    p.set('repcode', rep);
+  if (mt)     p.set('match_type', mt);
+  p.set('tva', getTva());
+  if (extra)  for (const [k, v] of Object.entries(extra)) p.set(k, v);
+  const s = p.toString();
+  return s ? '?' + s : '';
+}
+
+async function loadFilters() {
+  const data = await fetch(`${API}/filters`).then(r => r.json());
+  if (data.error) throw new Error(data.error);
+
+  const selTir = qs('f-tirid');
+  data.clients.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.TIRID; o.textContent = c.nom;
+    selTir.appendChild(o);
+  });
+  const selMq = qs('f-marque');
+  data.marques.forEach(m => {
+    const o = document.createElement('option'); o.value = m; o.textContent = m;
+    selMq.appendChild(o);
+  });
+  const selRep = qs('f-rep');
+  data.representants.forEach(r => {
+    const o = document.createElement('option'); o.value = r; o.textContent = r;
+    selRep.appendChild(o);
+  });
+
+  // Bornes par défaut : 90j si pas de relevés, sinon dates min/max
+  const b = data.bornes;
+  if (b?.date_max) qs('f-d1').value = b.date_max;
+  else qs('f-d1').value = new Date().toISOString().slice(0, 10);
+  if (b?.date_min) {
+    qs('f-d0').value = b.date_min;
+  } else {
+    const d = new Date(qs('f-d1').value + 'T00:00:00'); d.setDate(d.getDate() - 90);
+    qs('f-d0').value = d.toISOString().slice(0, 10);
+  }
+}
+
+async function loadKpis() {
+  const data = await fetch(`${API}/kpis${buildQS()}`).then(r => r.json());
+  if (data.error) throw new Error(data.error);
+  const detail =
+    `Direct : ${fmt(data.nb_match_direct || 0)} · ` +
+    `Via concurrent : ${fmt(data.nb_match_via_conc || 0)} · ` +
+    `Concurrent seul : ${fmt(data.nb_match_conc_seul || 0)} · ` +
+    `Orphelin : ${fmt(data.nb_orphelins || 0)}`;
+  qs('kpis').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Relevés</div>
+      <div class="kpi-val">${fmt(data.nb_releves)}</div>
+      <div class="kpi-sub">${data.date_min ? fmtDate(data.date_min) + ' → ' + fmtDate(data.date_max) : '—'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Références distinctes</div>
+      <div class="kpi-val">${fmt(data.nb_references)}</div>
+      <div class="kpi-sub">${detail}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Clients visités</div>
+      <div class="kpi-val">${fmt(data.nb_clients)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Articles propres couverts</div>
+      <div class="kpi-val">${fmt(data.nb_articles_propres)}</div>
+      <div class="kpi-sub">Rapprochés à ARTICLES</div></div>
+    <div class="kpi-card"><div class="kpi-label">Prix relevé moyen ${isHT() ? 'HT' : 'TTC'}</div>
+      <div class="kpi-val">${fmtEur(dispReleve(data.prix_releve_moyen))}</div></div>
+  `;
+}
+
+function sortRows(rows, key, dir) {
+  const sign = dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const va = a[key], vb = b[key];
+    if (va == null && vb == null) return 0;
+    if (va == null) return  1;
+    if (vb == null) return -1;
+    if (typeof va === 'number' || (!isNaN(+va) && !isNaN(+vb) && va !== '' && vb !== '')) {
+      return (+va - +vb) * sign;
+    }
+    return String(va).localeCompare(String(vb), 'fr') * sign;
+  });
+}
+
+function applyTextFilter(rows) {
+  const q = qs('f-q').value.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(r =>
+    (r.reference_article || '').toLowerCase().includes(q) ||
+    (r.designation_releve || '').toLowerCase().includes(q) ||
+    (r.artcode || '').toLowerCase().includes(q) ||
+    (r.artdesignation || '').toLowerCase().includes(q) ||
+    (r.marque || '').toLowerCase().includes(q) ||
+    (r.prod_libelle || '').toLowerCase().includes(q)
+  );
+}
+
+function renderEcarts() {
+  const tbody = qs('tbl-ecarts').querySelector('tbody');
+  const rowsAll = applyTextFilter(state.ecarts.rows);
+  const rows = sortRows(rowsAll, state.ecarts.sortKey, state.ecarts.sortDir);
+  qs('ecarts-sub').textContent = `${rows.length} ligne${rows.length > 1 ? 's' : ''}`;
+  updateSortIndicators('tbl-ecarts', state.ecarts);
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">Aucun relevé sur cette période/ces filtres.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => {
+    const ec = r.ecart_pct;
+    const ecCls = ecartClass(ec);
+    const ecTxt = ec == null ? '—' : (ec >= 0 ? '+' : '') + fmt(ec, 1) + ' %';
+    const monArtTxt = r.artcode
+      ? `<span class="clickable" onclick="openDetail(${r.resolved_ARTID}, null, ${jsArg(r.artcode)})">${escH(r.artcode)}</span><br><small style="color:var(--muted)">${escH(r.artdesignation || '')}</small>`
+      : '<span style="color:var(--muted)">—</span>';
+    const refTxt = `<span class="clickable" onclick="openDetail(null, ${jsArg(r.reference_article)}, ${jsArg(r.reference_article)})">${escH(r.reference_article)}</span>`;
+    return `<tr>
+      <td class="txt">${badgeMatch(r.match_type)}</td>
+      <td class="txt">${refTxt}</td>
+      <td class="txt">${escH(r.designation_releve || r.prod_libelle || '')}</td>
+      <td class="txt">${monArtTxt}</td>
+      <td class="txt">${escH(r.marque || '')}</td>
+      <td>${fmt(r.nb_releves)}</td>
+      <td>${fmt(r.nb_clients)}</td>
+      <td>${fmtEur(dispReleve(r.prix_min))}</td>
+      <td>${fmtEur(dispReleve(r.prix_moyen))}</td>
+      <td>${fmtEur(dispReleve(r.prix_max))}</td>
+      <td>${fmtEur(dispReleve(r.prix_promo_moyen))}</td>
+      <td>${fmtEur(dispMonPv(r.pv_moyen_ht))}</td>
+      <td class="${ecCls}">${ecTxt}</td>
+      <td>${fmtEur(r.ca_net_ht, 0)}</td>
+      <td>${fmtDate(r.date_dernier_releve)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderRisques() {
+  const tbody = qs('tbl-risques').querySelector('tbody');
+  const rows = sortRows(state.risques.rows, state.risques.sortKey, state.risques.sortDir);
+  const seuil = qs('f-seuil').value || 5;
+  qs('risques-sub').textContent = `${rows.length} article${rows.length > 1 ? 's' : ''} ≥ ${seuil} % plus cher`;
+  updateSortIndicators('tbl-risques', state.risques);
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="empty">Aucun article à risque sur ce seuil.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(r => `<tr>
+    <td class="txt"><span class="clickable" onclick="openDetail(${r.ARTID}, null, ${jsArg(r.ARTCODE)})">${escH(r.ARTCODE)}</span></td>
+    <td class="txt">${escH(r.designation || '')}</td>
+    <td class="txt">${escH(r.marque || '')}</td>
+    <td>${fmt(r.nb_releves)}</td>
+    <td>${fmt(r.nb_clients)}</td>
+    <td>${fmtEur(dispReleve(r.prix_concurrent_moyen))}</td>
+    <td>${fmtEur(dispMonPv(r.pv_moyen_ht))}</td>
+    <td class="ec-bad">+${fmt(r.ecart_pct, 1)} %</td>
+    <td>${fmtEur(r.ca_net_ht, 0)}</td>
+    <td>${fmtDate(r.date_dernier_releve)}</td>
+  </tr>`).join('');
+}
+
+function updateSortIndicators(tblId, st) {
+  document.querySelectorAll(`#${tblId} thead th`).forEach(th => {
+    th.classList.remove('sorted-asc', 'sorted-desc');
+    if (th.dataset.k === st.sortKey) th.classList.add(st.sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+  });
+}
+
+function bindSort(tblId, stKey, rerender) {
+  document.querySelectorAll(`#${tblId} thead th.sortable`).forEach(th => {
+    th.addEventListener('click', () => {
+      const k = th.dataset.k;
+      const st = state[stKey];
+      if (st.sortKey === k) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
+      else { st.sortKey = k; st.sortDir = 'desc'; }
+      rerender();
+    });
+  });
+}
+
+async function loadEcarts() {
+  const data = await fetch(`${API}/ecarts${buildQS({ limit: 2000 })}`).then(r => r.json());
+  if (data.error) throw new Error(data.error);
+  state.ecarts.rows = data.rows || [];
+  renderEcarts();
+}
+
+async function loadRisques() {
+  const seuil = qs('f-seuil').value || 5;
+  const data = await fetch(`${API}/risques${buildQS({ seuil_pct: seuil, limit: 200 })}`).then(r => r.json());
+  if (data.error) throw new Error(data.error);
+  state.risques.rows = data.rows || [];
+  renderRisques();
+}
+
+async function loadAll() {
+  const btn = qs('refresh-btn'), dot = qs('status-dot'), banner = qs('error-banner');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await Promise.all([loadKpis(), loadRisques(), loadEcarts()]);
+    dot.className = 'ok';
+    banner.style.display = 'none';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch (err) {
+    dot.className = 'err';
+    banner.style.display = 'block';
+    banner.textContent = 'Erreur : ' + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+// ── Drill-down ────────────────────────────────────────────────────────────────
+async function openDetail(artid, reference, label) {
+  qs('modal-title').textContent = 'Détail des relevés — ' + (label || reference || ('ARTID ' + artid));
+  qs('modal-body').innerHTML = '<div class="empty">Chargement…</div>';
+  qs('modal-bg').classList.add('open');
+  try {
+    const extra = artid ? { artid } : { reference };
+    const data = await fetch(`${API}/detail${buildQS(extra)}`).then(r => r.json());
+    if (data.error) throw new Error(data.error);
+    if (!data.rows.length) { qs('modal-body').innerHTML = '<div class="empty">Aucun relevé.</div>'; return; }
+    qs('modal-body').innerHTML = `
+      <table class="data">
+        <thead><tr>
+          <th class="txt">Date</th><th class="txt">Client</th><th class="txt">Rep</th>
+          <th class="txt">Référence</th><th class="txt">Désignation</th>
+          <th class="txt">Marque</th><th>Prix ${isHT() ? 'HT' : 'TTC'}</th><th>Promo ${isHT() ? 'HT' : 'TTC'}</th><th class="txt">Type</th>
+        </tr></thead>
+        <tbody>${data.rows.map(r => `<tr>
+          <td class="txt">${fmtDate(r.date_releve)}</td>
+          <td class="txt">${escH(r.client || '')}</td>
+          <td class="txt">${escH(r.REPCODE || '')}</td>
+          <td class="txt">${escH(r.REFERENCE_ARTICLE || '')}</td>
+          <td class="txt">${escH(r.DESIGNATION_ARTICLE || '')}</td>
+          <td class="txt">${escH(r.marque || '')}</td>
+          <td>${fmtEur(dispReleve(r.PRIX_RELEVE))}</td>
+          <td>${fmtEur(dispReleve(r.PRIX_PROMO))}</td>
+          <td class="txt">${badgeMatch(r.match_type)}</td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+  } catch (err) {
+    qs('modal-body').innerHTML = `<div class="empty" style="color:var(--red)">Erreur : ${escH(err.message)}</div>`;
+  }
+}
+
+function closeDetail() { qs('modal-bg').classList.remove('open'); }
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+function exportCsv() {
+  const rows = applyTextFilter(state.ecarts.rows);
+  if (!rows.length) return alert('Aucune ligne à exporter.');
+  const u = isHT() ? 'HT' : 'TTC';
+  const headers = ['Type', 'Réf relevé', 'Désignation', 'Mon article', 'Mon libellé', 'Marque',
+    'Nb relevés', 'Nb clients',
+    `Prix min ${u}`, `Prix moyen ${u}`, `Prix max ${u}`, `Prix promo moy ${u}`,
+    `Mon PV ${u}`, 'Écart %', 'Mon CA HT', 'Qté vendue', 'Dernier relevé'];
+  const round2 = v => v == null || isNaN(+v) ? '' : (+v).toFixed(2).replace('.', ',');
+  const esc = v => {
+    if (v == null) return '';
+    const s = String(v);
+    return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [headers.join(';')];
+  rows.forEach(r => lines.push([
+    r.match_type, r.reference_article, r.designation_releve, r.artcode, r.artdesignation, r.marque,
+    r.nb_releves, r.nb_clients,
+    round2(dispReleve(r.prix_min)), round2(dispReleve(r.prix_moyen)), round2(dispReleve(r.prix_max)), round2(dispReleve(r.prix_promo_moyen)),
+    round2(dispMonPv(r.pv_moyen_ht)),
+    r.ecart_pct == null ? '' : (+r.ecart_pct).toFixed(2).replace('.', ','),
+    round2(r.ca_net_ht), r.qte_vendue, r.date_dernier_releve,
+  ].map(esc).join(';')));
+  const csv = '﻿' + lines.join('\r\n');   // BOM UTF-8 pour Excel FR
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `rapport-prix-${u.toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Met à jour les badges TTC/HT en en-tête sans re-fetch
+function refreshModeBadges() {
+  const u = isHT() ? 'HT' : 'TTC';
+  document.querySelectorAll('.th-mode').forEach(s => s.textContent = u);
+}
+
+// Bascule HT/TTC ou changement de TVA : pas besoin de refetch, juste re-render +
+// recalc serveur de l'écart (le ratio est juste-côté serveur via tva_coef).
+async function onTvaModeChange() {
+  localStorage.setItem('tb_prix_mode', qs('f-mode').value);
+  localStorage.setItem('tb_prix_tva',  qs('f-tva').value);
+  refreshModeBadges();
+  // On reload car ecart_pct dépend du serveur (param tva)
+  await loadAll();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+const savedMode = localStorage.getItem('tb_prix_mode');
+const savedTva  = localStorage.getItem('tb_prix_tva');
+if (savedMode) qs('f-mode').value = savedMode;
+if (savedTva)  qs('f-tva').value  = savedTva;
+
+['f-d0','f-d1','f-tirid','f-marque','f-rep','f-match'].forEach(id => qs(id).addEventListener('change', loadAll));
+qs('f-mode').addEventListener('change', onTvaModeChange);
+qs('f-tva').addEventListener('change',  onTvaModeChange);
+qs('f-q').addEventListener('input', () => renderEcarts());
+qs('f-seuil').addEventListener('change', loadRisques);
+qs('refresh-btn').addEventListener('click', loadAll);
+qs('csv-btn').addEventListener('click', exportCsv);
+qs('modal-bg').addEventListener('click', e => { if (e.target === qs('modal-bg')) closeDetail(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+
+bindSort('tbl-ecarts',  'ecarts',  renderEcarts);
+bindSort('tbl-risques', 'risques', renderRisques);
+
+refreshModeBadges();
+loadFilters().then(loadAll).catch(err => {
+  qs('error-banner').style.display = 'block';
+  qs('error-banner').textContent = 'Erreur : ' + err.message;
+});
+</script>
+</body>
+</html>

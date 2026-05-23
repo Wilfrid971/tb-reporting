@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Diag CA — viewer vs export</title>
+<script src="/auth-client.js"></script>
+<style>
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; background: #1e2030; color: #e2e8f0; margin: 0; padding: 24px; }
+  h1 { margin-top: 0; color: #64b5f6; }
+  pre { background: #11131c; padding: 16px; border-radius: 6px; overflow: auto; font-size: 13px; line-height: 1.5; border: 1px solid #2a2d3e; }
+  .row { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  input, button, select { font-size: 14px; padding: 6px 12px; border-radius: 4px; border: 1px solid #2a2d3e; background: #11131c; color: #e2e8f0; }
+  button { background: #1976d2; cursor: pointer; border-color: #1976d2; font-weight: 600; }
+  button:hover { background: #1565c0; }
+  .err { color: #ef5350; }
+  .ok { color: #66bb6a; }
+  .diff { color: #ffa726; font-weight: 600; }
+  table { border-collapse: collapse; margin: 12px 0; }
+  th, td { padding: 8px 14px; border: 1px solid #2a2d3e; text-align: right; }
+  th { background: #1a237e; }
+  td:first-child, th:first-child { text-align: left; }
+</style>
+</head>
+<body>
+<h1>🔬 Diag CA — viewer vs export</h1>
+
+<div class="row">
+  <label>Date du jour :</label>
+  <input type="date" id="asof">
+  <label>Connexion (dbs) :</label>
+  <input type="text" id="dbs" placeholder="default ou ID connexion" style="width:160px">
+  <button onclick="run()">Lancer le diag</button>
+</div>
+
+<div id="out"></div>
+
+<script>
+(async () => {
+  const t = new Date(), p = n => String(n).padStart(2,'0');
+  document.getElementById('asof').value = `${t.getFullYear()}-${p(t.getMonth()+1)}-${p(t.getDate())}`;
+})();
+
+async function run() {
+  const out = document.getElementById('out');
+  out.innerHTML = '⏳ ...';
+  const asof = document.getElementById('asof').value;
+  const dbs = document.getElementById('dbs').value.trim();
+  const params = new URLSearchParams();
+  if (asof) params.set('asof', asof);
+  if (dbs)  params.set('dbs', dbs);
+  try {
+    const r = await AUTH.apiFetch('/api/commercial/diag-ca?' + params.toString());
+    const data = await r.json();
+    if (data.error) {
+      out.innerHTML = `<pre class="err">${data.error}\n${data.stack || ''}</pre>`;
+      return;
+    }
+    let html = `<p>Période analysée : <b>${data.results[0]?.periode.md} → ${data.results[0]?.periode.mf}</b></p>`;
+    for (const r of data.results) {
+      const sans = r.sans_filtre_actif, avec = r.avec_filtre_actif;
+      const fmt = v => new Intl.NumberFormat('fr-FR').format(Math.round(parseFloat(v) || 0)) + ' €';
+      html += `<h2>📊 Connexion : <code>${r.db}</code></h2>
+        <table>
+          <tr><th></th><th>SANS filtre actif (= export)</th><th>AVEC filtre actif=O (= viewer)</th><th>Δ (avec − sans)</th></tr>
+          <tr><td>CA HT</td><td>${fmt(sans.ca)}</td><td>${fmt(avec.ca)}</td><td class="diff">${fmt(r.diff_ca)}</td></tr>
+          <tr><td>Nb lignes</td><td>${sans.nb_lignes}</td><td>${avec.nb_lignes}</td><td class="diff">${avec.nb_lignes - sans.nb_lignes}</td></tr>
+          <tr><td>Nb pièces</td><td>${sans.nb_pieces}</td><td>${avec.nb_pieces}</td><td class="diff">${avec.nb_pieces - sans.nb_pieces}</td></tr>
+        </table>`;
+      if (r.diff_ca > 0) {
+        html += `<p class="diff">⚠️ ANOMALIE : "avec filtre actif" devrait être ≤ "sans filtre" — or il est plus grand. Suggère un bug SQL/donnée.</p>`;
+      } else if (r.diff_ca === 0) {
+        html += `<p class="ok">✅ Filtre actif n'a aucun effet sur cette période (toutes les ventes ont un rep actif).</p>`;
+      } else {
+        html += `<p class="ok">✅ Comportement attendu : le filtre actif réduit le CA de ${fmt(-r.diff_ca)}.</p>`;
+      }
+    }
+    html += `<details><summary>SQL exécutées</summary>
+      <h3>Sans filtre :</h3><pre>${data.sql_no_filter}</pre>
+      <h3>Avec filtre actif :</h3><pre>${data.sql_actif}</pre></details>`;
+    out.innerHTML = html;
+  } catch (e) {
+    out.innerHTML = `<pre class="err">${e.message}</pre>`;
+  }
+}
+</script>
+</body>
+</html>

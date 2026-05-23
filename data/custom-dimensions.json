@@ -1,0 +1,82 @@
+[
+  {
+    "tableKey": "TIERS_CLIENT",
+    "column": "TIRSIREN",
+    "dataType": "varchar",
+    "group": "Client",
+    "label": "N°Siren"
+  },
+  {
+    "id": "custom_pieceventes_pcvnum",
+    "tableKey": "PIECEVENTES",
+    "column": "PCVNUM",
+    "dataType": "varchar",
+    "group": "Document",
+    "label": "N° pièce"
+  },
+  {
+    "id": "custom_pieceventes_pcvnumext",
+    "tableKey": "PIECEVENTES",
+    "column": "PCVNUMEXT",
+    "dataType": "varchar",
+    "group": "Document",
+    "label": "Référence"
+  },
+  {
+    "id": "custom_formula_1776515651256",
+    "type": "formula",
+    "formulaType": "calc",
+    "tableKey": "ARTICLES",
+    "extraTableKeys": [],
+    "label": "Volume",
+    "group": "Article",
+    "expr": "ISNULL(a.ARTVOLUME,0) * ISNULL(a.ARTUNITEVOLUME,0)",
+    "groupBy": "a.ARTVOLUME, a.ARTUNITEVOLUME",
+    "pieces": [
+      {
+        "tableKey": "ARTICLES",
+        "column": "ARTVOLUME",
+        "alias": "",
+        "dataType": "ARTQTE"
+      },
+      {
+        "op": "*"
+      },
+      {
+        "tableKey": "ARTICLES",
+        "column": "ARTUNITEVOLUME",
+        "alias": "",
+        "dataType": "numeric"
+      }
+    ]
+  },
+  {
+    "id": "custom_articles_p_emp",
+    "tableKey": "ARTICLES_P",
+    "column": "EMP",
+    "dataType": "varchar",
+    "group": "Article",
+    "label": "Emplacement"
+  },
+  {
+    "id": "fournisseur_nom",
+    "builtin": true,
+    "label": "Nom du fournisseur"
+  },
+  {
+    "id": "custom_tiers_rep_tirisactif",
+    "tableKey": "TIERS_REP",
+    "column": "TIRISACTIF",
+    "dataType": "BOOL",
+    "group": "Commercial",
+    "label": "Actif O/N"
+  },
+  {
+    "id": "custom_articles_artisactif",
+    "tableKey": "ARTICLES",
+    "column": "ARTISACTIF",
+    "dataType": "BOOL",
+    "group": "Article",
+    "label": "Actif O/N"
+  }
+]

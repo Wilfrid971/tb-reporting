@@ -1,0 +1,80 @@
+[
+  {
+    "id": "moqgqey5l7a2",
+    "createdAt": "2026-05-03T00:00:00.000Z",
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "name": "CA Branche VITO",
+    "description": "CA HT par client × année × mois — la branche est modifiable depuis la barre de filtres du viewer",
+    "recipients": "",
+    "schedules": [],
+    "groups": ["*"],
+    "dbs": "default",
+    "widgets": [
+      {
+        "title": "CA Branche VITO",
+        "source": "_auto",
+        "displayType": "table",
+        "width": "full",
+        "pivot": true,
+        "showTotals": "both",
+        "sortDir": "desc",
+        "topN": 0,
+        "chartType": "bar",
+        "chartSeriesBy": "measure",
+        "params": {
+          "periode_debut": "2023",
+          "periode_fin": "ytd",
+          "filters": [
+            { "dimId": "cli_branche", "op": "=", "val": "VITO", "val2": "" }
+          ]
+        },
+        "measures": ["ca"],
+        "dimensions": ["cli_code", "cli_nom", "time_annee", "time_mois_lib"],
+        "ruptures": ["cli_nom"],
+        "detailDims": ["cli_code", "time_annee"],
+        "pivotCols": ["time_mois_lib"]
+      }
+    ]
+  },
+  {
+    "id": "moqgqeyh71ju",
+    "createdAt": "2026-05-03T00:00:00.000Z",
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "name": "CA Branche FABRE par nature produit",
+    "description": "CA HT + Quantité par client × année × nature × article × mois — la branche est modifiable depuis la barre de filtres du viewer",
+    "recipients": "",
+    "schedules": [],
+    "groups": ["*"],
+    "dbs": "default",
+    "widgets": [
+      {
+        "title": "CA Branche FABRE par nature produit",
+        "source": "_auto",
+        "displayType": "table",
+        "width": "full",
+        "pivot": true,
+        "showTotals": "both",
+        "sortDir": "desc",
+        "topN": 0,
+        "chartType": "bar",
+        "chartSeriesBy": "measure",
+        "params": {
+          "periode_debut": "2023",
+          "periode_fin": "ytd",
+          "filters": [
+            { "dimId": "cli_branche", "op": "=", "val": "FABRE", "val2": "" }
+          ]
+        },
+        "measures": ["qte", "ca"],
+        "dimensions": [
+          "cli_code", "cli_nom", "time_annee",
+          "art_nature", "art_ref", "art_designation",
+          "time_mois_lib"
+        ],
+        "ruptures": ["cli_nom", "time_annee", "art_nature"],
+        "detailDims": ["cli_code", "art_ref", "art_designation"],
+        "pivotCols": ["time_mois_lib"]
+      }
+    ]
+  }
+]

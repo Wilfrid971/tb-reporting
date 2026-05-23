@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Segmentation — Clients & Articles</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117; --surface: #1a1d2e; --surface2: #1e2235;
+      --border: #2a2d3e; --text: #e2e8f0; --text-muted: #8892a4;
+      --blue: #2196F3; --green: #4CAF50; --orange: #FF9800;
+      --purple: #9C27B0; --red: #F44336; --radius: 12px; --gap: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+    html.embedded header { display: none; }
+
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 10px 16px; position: sticky; top: 0; z-index: 10;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; margin-right: 8px; white-space: nowrap; }
+    .nav-link {
+      color: var(--text-muted); font-size: 0.78rem; text-decoration: none;
+      padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px;
+    }
+    .nav-link:hover { color: var(--text); border-color: var(--blue); }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+    .filters select {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
+    }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    #status-dot { width: 9px; height: 9px; border-radius: 50%; background: #666; }
+    #status-dot.ok { background: var(--green); }
+    #status-dot.error { background: var(--red); }
+    #last-update { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+    #refresh-btn {
+      background: var(--blue); border: none; color: #fff;
+      padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;
+    }
+    #refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 var(--gap); margin-top: var(--gap); }
+    .tab-btn {
+      background: none; border: none; color: var(--text-muted);
+      padding: 8px 20px; font-size: 0.85rem; cursor: pointer;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+    }
+    .tab-btn.active { color: var(--text); border-bottom-color: var(--blue); font-weight: 600; }
+
+    /* Dimension selector bar */
+    .dim-bar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: var(--gap) var(--gap) 0;
+    }
+    .dim-label { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+    .dim-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+    .dim-btn {
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 20px;
+      padding: 4px 12px; font-size: 0.75rem; cursor: pointer;
+    }
+    .dim-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+    /* Layout */
+    .container { padding: var(--gap); max-width: 1400px; margin: 0 auto; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .chart-row { display: grid; gap: var(--gap); margin-bottom: var(--gap); }
+    .row-full  { grid-template-columns: 1fr; }
+    .row-2col  { grid-template-columns: 1fr; }
+    @media (min-width: 900px) { .row-2col { grid-template-columns: 1fr 1fr; } }
+    .chart-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+    }
+    .chart-card h3 {
+      font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 12px;
+    }
+    .chart-card canvas { max-height: 320px; }
+    .no-data { color: var(--text-muted); font-size: 0.82rem; padding: 30px 0; text-align: center; }
+    .error-banner {
+      background: #2a1a1a; border: 1px solid var(--red);
+      border-radius: var(--radius); padding: 10px 14px;
+      color: var(--red); font-size: 0.85rem; margin-bottom: var(--gap); display: none;
+    }
+  </style>
+  <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+
+<header>
+  <h1 id="page-title">🔍 Segmentation</h1>
+  <a class="nav-link" href="/tb-reporting.html">← TB Reporting</a>
+  <a class="nav-link" href="/dashboard.html">📋 Rapports</a>
+  <a class="nav-link" href="/backoffice.html">⚙️ Backoffice</a>
+  <a class="nav-link" href="/settings.html">🔧 Paramètres</a>
+  <div class="filters">
+    <select id="sel-annee" onchange="loadActive()"></select>
+    <select id="sel-glissant" onchange="loadActive()">
+      <option value="">— Glissant —</option>
+      <option value="30">30 derniers jours</option>
+      <option value="90">90 derniers jours</option>
+      <option value="12m">12 derniers mois</option>
+    </select>
+    <select id="sel-rep" onchange="loadActive()">
+      <option value="">Tous les commerciaux</option>
+    </select>
+  </div>
+  <div class="header-right">
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button id="refresh-btn" onclick="loadActive()">↻ Actualiser</button>
+  </div>
+</header>
+
+<!-- Tabs -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="switchTab('clients')">Clients</button>
+  <button class="tab-btn" onclick="switchTab('articles')">Articles</button>
+</div>
+
+<div class="container">
+  <div id="error-banner" class="error-banner"></div>
+
+  <!-- ── Tab Clients ───────────────────────────────────────── -->
+  <div id="tab-clients" class="tab-panel active">
+    <div class="dim-bar">
+      <span class="dim-label">Dimension :</span>
+      <div class="dim-btns" id="dim-btns-clients">
+        <button class="dim-btn active" data-dim="TIRCATEGORIE">Catégorie</button>
+        <button class="dim-btn" data-dim="TIRACTIVITE">Activité</button>
+        <button class="dim-btn" data-dim="TIRGEO">Zone géo</button>
+        <button class="dim-btn" data-dim="TIRBRANCHE">Branche</button>
+        <button class="dim-btn" data-dim="TIRENSEIGNE">Enseigne</button>
+        <button class="dim-btn" data-dim="TIRORIGINE">Origine</button>
+        <button class="dim-btn" data-dim="TIRCIBLE1">Cible 1</button>
+        <button class="dim-btn" data-dim="TIRCIBLE2">Cible 2</button>
+      </div>
+    </div>
+    <br>
+    <div class="chart-row row-2col">
+      <div class="chart-card">
+        <h3 id="title-clients-global">CA HT par catégorie</h3>
+        <canvas id="chart-clients-global"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3 id="title-clients-rep">Répartition par commercial</h3>
+        <canvas id="chart-clients-rep"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab Articles ──────────────────────────────────────── -->
+  <div id="tab-articles" class="tab-panel">
+    <div class="dim-bar">
+      <span class="dim-label">Dimension :</span>
+      <div class="dim-btns" id="dim-btns-articles">
+        <button class="dim-btn active" data-dim="ARTFAMILLE">Famille</button>
+        <button class="dim-btn" data-dim="ARTSOUSFAMILLE">Sous-famille</button>
+        <button class="dim-btn" data-dim="ARTCATEGORIE">Catégorie</button>
+        <button class="dim-btn" data-dim="ARTNATURE">Nature</button>
+        <button class="dim-btn" data-dim="ARTCOLLECTION">Collection</button>
+        <button class="dim-btn" data-dim="ARTMARQUE">Marque</button>
+        <button class="dim-btn" data-dim="ARTCLASSE">Classe</button>
+      </div>
+    </div>
+    <br>
+    <div class="chart-row row-2col">
+      <div class="chart-card">
+        <h3 id="title-articles-global">CA HT par famille</h3>
+        <canvas id="chart-articles-global"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3 id="title-articles-rep">Répartition par commercial</h3>
+        <canvas id="chart-articles-rep"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/commercial';
+const charts = {};
+
+const DIM_LABELS = {
+  TIRCATEGORIE:'Catégorie', TIRACTIVITE:'Activité', TIRGEO:'Zone géo',
+  TIRBRANCHE:'Branche', TIRENSEIGNE:'Enseigne', TIRORIGINE:'Origine',
+  TIRCIBLE1:'Cible 1', TIRCIBLE2:'Cible 2',
+  ARTFAMILLE:'Famille', ARTSOUSFAMILLE:'Sous-famille', ARTCATEGORIE:'Catégorie',
+  ARTNATURE:'Nature', ARTCOLLECTION:'Collection', ARTMARQUE:'Marque', ARTCLASSE:'Classe'
+};
+
+const PALETTE = [
+  '#2196F3','#4CAF50','#FF9800','#9C27B0','#F44336',
+  '#00BCD4','#FFEB3B','#E91E63','#009688','#FF5722',
+  '#3F51B5','#8BC34A','#FFC107','#607D8B','#795548'
+];
+
+let activeTab = 'clients';
+let activeDim = { clients: 'TIRCATEGORIE', articles: 'ARTFAMILLE' };
+let segTitles = {
+  clients_global:  'CA HT par {dim} — {periode_n} vs {periode_n1}',
+  clients_rep:     'CA par commercial — top segments ({dim}) — {periode_n}',
+  articles_global: 'CA HT par {dim} — {periode_n} vs {periode_n1}',
+  articles_rep:    'CA par commercial — top segments ({dim}) — {periode_n}',
+};
+
+function applyTpl(tpl, vars) {
+  return (tpl || '').replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+}
+
+function fmt(n, d = 0) {
+  if (n === null || n === undefined) return '—';
+  return new Intl.NumberFormat('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }).format(n);
+}
+function fmtEuro(n) { return fmt(n) + ' €'; }
+function hexAlpha(hex, a) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function qs(id) { return document.getElementById(id); }
+
+const _pad = n => String(n).padStart(2, '0');
+const _fmt = d => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
+
+function getFilters() {
+  const repid = window._embedRepid || qs('sel-rep').value || '';
+  const actif = window._embedActif !== undefined ? window._embedActif : 'O';
+  if (window._embedDates) return { ...window._embedDates, repid, actif };
+
+  const today = new Date();
+
+  // Période glissante prend le dessus sur le sélecteur d'année
+  const glissant = qs('sel-glissant').value;
+  if (glissant) {
+    const fin = new Date(today);
+    const debut = new Date(today);
+    if (glissant === '12m') {
+      debut.setFullYear(debut.getFullYear() - 1); debut.setDate(debut.getDate() + 1);
+    } else {
+      debut.setDate(debut.getDate() - parseInt(glissant) + 1);
+    }
+    return { date_debut: _fmt(debut), date_fin: _fmt(fin), repid, actif };
+  }
+
+  const anneeVal = qs('sel-annee').value || 'ytd';
+  if (anneeVal.startsWith('ytd_exe:')) {
+    const parts = anneeVal.split(':');
+    // Début d'exercice → aujourd'hui
+    return { date_debut: parts[1], date_fin: _fmt(today), repid, actif };
+  }
+  if (anneeVal.startsWith('exe:')) {
+    const parts = anneeVal.split(':');
+    return { date_debut: parts[1], date_fin: parts[2], repid, actif };
+  }
+  if (anneeVal === 'ytd') {
+    const yn = today.getFullYear(), mn = today.getMonth()+1, dn = today.getDate();
+    return { date_debut: `${yn}-01-01`, date_fin: `${yn}-${_pad(mn)}-${_pad(dn)}`, repid, actif };
+  }
+  const ya = parseInt(anneeVal);
+  return { date_debut: `${ya}-01-01`, date_fin: `${ya}-12-31`, repid, actif };
+}
+
+function getFiltersN1() {
+  const f = getFilters();
+  const d0 = new Date(f.date_debut + 'T00:00:00');
+  const d1 = new Date(f.date_fin   + 'T00:00:00');
+  d0.setFullYear(d0.getFullYear() - 1);
+  d1.setFullYear(d1.getFullYear() - 1);
+  return { date_debut: _fmt(d0), date_fin: _fmt(d1), repid: f.repid };
+}
+
+function periodeLabel(f) {
+  return `${formatDate(f.date_debut)} → ${formatDate(f.date_fin)}`;
+}
+
+function buildParamsFrom(f) {
+  return Object.entries(f).filter(([,v]) => v !== '' && v != null).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
+function buildParams(extra = {}) {
+  const f = { ...getFilters(), ...extra };
+  return Object.entries(f).filter(([,v]) => v !== '' && v != null).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
+// Params sans repid — pour les graphiques CA HT global (pas de notion de commercial)
+function buildParamsGlobal(extra = {}) {
+  const { repid: _ignored, ...f } = { ...getFilters(), ...extra };
+  return Object.entries(f).filter(([,v]) => v !== '' && v != null).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
+// ── Pivot rows [{rep, segment, valeur}] → stacked chart data (top N segments) ──
+function pivotStacked(rows, topN = 8) {
+  const segTotals = {};
+  for (const r of rows) segTotals[r.segment] = (segTotals[r.segment] || 0) + parseFloat(r.valeur);
+  const topSegs = Object.entries(segTotals).sort((a,b) => b[1]-a[1]).slice(0,topN).map(([s])=>s);
+  const reps = [...new Set(rows.map(r => r.rep))].sort();
+  const map = {};
+  for (const r of rows) {
+    if (!topSegs.includes(r.segment)) continue;
+    if (!map[r.rep]) map[r.rep] = {};
+    map[r.rep][r.segment] = parseFloat(r.valeur) || 0;
+  }
+  const datasets = topSegs.map((seg, i) => ({
+    label: seg,
+    data: reps.map(rep => map[rep]?.[seg] || 0),
+    backgroundColor: PALETTE[i % PALETTE.length],
+    borderColor: '#1a1d2e', borderWidth: 1
+  }));
+  return { labels: reps, datasets };
+}
+
+function renderGroupedBar(canvasId, rowsN, rowsN1, labelN, labelN1, color) {
+  const canvas = qs(canvasId);
+  const ctx = canvas.getContext('2d');
+  if (charts[canvasId]) charts[canvasId].destroy();
+  canvas.style.display = '';
+  // Supprimer tout message "Aucune donnée" précédent
+  const prev = canvas.parentNode.querySelector('.no-data');
+  if (prev) prev.remove();
+
+  if (!rowsN.length) {
+    canvas.style.display = 'none';
+    const p = document.createElement('p');
+    p.className = 'no-data'; p.textContent = 'Aucune donnée';
+    canvas.parentNode.appendChild(p);
+    return;
+  }
+
+  const top = rowsN.slice(0, 12);
+  const labels = top.map(r => r.label || 'Non défini');
+  const n1Map = {};
+  (rowsN1 || []).forEach(r => { n1Map[r.label || 'Non défini'] = parseFloat(r.valeur) || 0; });
+
+  charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: labelN,  data: top.map(r => parseFloat(r.valeur)||0), backgroundColor: hexAlpha(color, 0.8), borderColor: color, borderWidth: 1 },
+        { label: labelN1, data: labels.map(l => n1Map[l] || 0), backgroundColor: hexAlpha('#8892a4', 0.45), borderColor: '#8892a4', borderWidth: 1 }
+      ]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { position: 'top', labels: { color: '#e2e8f0', font: { size: 10 }, padding: 10, boxWidth: 12 } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label} : ${fmtEuro(c.raw)}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+function renderStacked(canvasId, rows) {
+  const ctx = qs(canvasId).getContext('2d');
+  if (charts[canvasId]) charts[canvasId].destroy();
+  if (!rows.length) {
+    ctx.canvas.style.display = 'none';
+    const p = document.createElement('p');
+    p.className = 'no-data'; p.textContent = 'Aucune donnée';
+    ctx.canvas.parentNode.appendChild(p);
+    return;
+  }
+  const { labels, datasets } = pivotStacked(rows);
+  charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#e2e8f0', font: { size: 10 }, padding: 8, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label} : ${fmtEuro(ctx.raw)}` } }
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: '#2a2d3e' } },
+        y: { stacked: true, ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// ── Chargement ─────────────────────────────────────────────────
+async function loadClients() {
+  const dim = activeDim.clients;
+  const label = DIM_LABELS[dim];
+  const fN1 = getFiltersN1();
+  const lN  = periodeLabel(getFilters());
+  const lN1 = periodeLabel(fN1);
+  const vars = { dim: label, periode_n: lN, periode_n1: lN1 };
+  qs('title-clients-global').textContent = applyTpl(segTitles.clients_global, vars);
+  qs('title-clients-rep').textContent    = applyTpl(segTitles.clients_rep,    vars);
+
+  const [global, globalN1, parRep] = await Promise.all([
+    fetch(`${API}/segmentation-clients?${buildParamsGlobal({ dim })}`).then(r => r.json()),
+    fetch(`${API}/segmentation-clients?${buildParamsFrom({ ...fN1, dim, repid: undefined })}`).then(r => r.json()),
+    fetch(`${API}/segmentation-clients-par-rep?${buildParams({ dim })}`).then(r => r.json())
+  ]);
+  if (global.error) throw new Error(global.error);
+  renderGroupedBar('chart-clients-global', global, globalN1, lN, lN1, '#2196F3');
+  renderStacked('chart-clients-rep', parRep);
+}
+
+async function loadArticles() {
+  const dim = activeDim.articles;
+  const label = DIM_LABELS[dim];
+  const fN1 = getFiltersN1();
+  const lN  = periodeLabel(getFilters());
+  const lN1 = periodeLabel(fN1);
+  const vars = { dim: label, periode_n: lN, periode_n1: lN1 };
+  qs('title-articles-global').textContent = applyTpl(segTitles.articles_global, vars);
+  qs('title-articles-rep').textContent    = applyTpl(segTitles.articles_rep,    vars);
+
+  const [global, globalN1, parRep] = await Promise.all([
+    fetch(`${API}/segmentation-articles?${buildParamsGlobal({ dim })}`).then(r => r.json()),
+    fetch(`${API}/segmentation-articles?${buildParamsFrom({ ...fN1, dim, repid: undefined })}`).then(r => r.json()),
+    fetch(`${API}/segmentation-articles-par-rep?${buildParams({ dim })}`).then(r => r.json())
+  ]);
+  if (global.error) throw new Error(global.error);
+  renderGroupedBar('chart-articles-global', global, globalN1, lN, lN1, '#4CAF50');
+  renderStacked('chart-articles-rep', parRep);
+}
+
+async function loadActive() {
+  const btn = qs('refresh-btn');
+  const dot = qs('status-dot');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    if (activeTab === 'clients') await loadClients();
+    else await loadArticles();
+    dot.className = 'ok';
+    qs('error-banner').style.display = 'none';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch (err) {
+    dot.className = 'error';
+    qs('error-banner').style.display = 'block';
+    qs('error-banner').textContent = `Erreur : ${err.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+// ── Switch tab ─────────────────────────────────────────────────
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', ['clients','articles'][i] === tab));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  qs(`tab-${tab}`).classList.add('active');
+  loadActive();
+}
+
+// ── Dimension buttons ──────────────────────────────────────────
+document.querySelectorAll('#dim-btns-clients .dim-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#dim-btns-clients .dim-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeDim.clients = btn.dataset.dim;
+    loadActive();
+  });
+});
+document.querySelectorAll('#dim-btns-articles .dim-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#dim-btns-articles .dim-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeDim.articles = btn.dataset.dim;
+    loadActive();
+  });
+});
+
+// ── Init ───────────────────────────────────────────────────────
+async function init() {
+  try {
+    const titles = await fetch(`${API}/builtin-titles`).then(r => r.json());
+    if (titles?.segmentation) qs('page-title').textContent = `🔍 ${titles.segmentation}`;
+    if (titles?.sections?.segmentation) segTitles = { ...segTitles, ...titles.sections.segmentation };
+  } catch {}
+
+  const actifQ = window._embedActif !== undefined ? window._embedActif : 'O';
+  const data = await fetch(`${API}/filters?actif=${encodeURIComponent(actifQ)}`).then(r => r.json());
+  const curY = new Date().getFullYear();
+  const selAn = qs('sel-annee');
+  const pastAnnees = data.annees.filter(a => a < curY);
+
+  const _tod = new Date();
+  const _p2 = n => String(n).padStart(2,'0');
+  const _todayStr = `${_tod.getFullYear()}-${_p2(_tod.getMonth()+1)}-${_p2(_tod.getDate())}`;
+  const curExe = (data.exercices||[]).find(e => e.date_debut <= _todayStr && _todayStr <= e.date_fin);
+
+  let anHtml = '';
+  if (data.exercices?.length) {
+    anHtml += '<optgroup label="YTD exercice">';
+    data.exercices.forEach(e => {
+      const isCur = curExe && e.date_debut === curExe.date_debut;
+      anHtml += `<option value="ytd_exe:${e.date_debut}:${e.date_fin}"${isCur?' selected':''}>YTD ${e.libelle || e.annee_debut}${isCur?' (en cours)':''}</option>`;
+    });
+    anHtml += '</optgroup>';
+  }
+  anHtml += `<option value="ytd"${curExe?'':' selected'}>YTD calendaire — ${curY} (jusqu'à aujourd'hui)</option>`;
+  anHtml += `<option value="${curY}">${curY} — Année complète</option>`;
+  if (pastAnnees.length) {
+    anHtml += '<optgroup label="Années calendaires">';
+    pastAnnees.forEach(a => { anHtml += `<option value="${a}">${a}</option>`; });
+    anHtml += '</optgroup>';
+  }
+  if (data.exercices?.length) {
+    anHtml += '<optgroup label="Exercices fiscaux (complets)">';
+    data.exercices.forEach(e => {
+      anHtml += `<option value="exe:${e.date_debut}:${e.date_fin}">${e.libelle || e.annee_debut}</option>`;
+    });
+    anHtml += '</optgroup>';
+  }
+  selAn.innerHTML = anHtml;
+  selAn.onchange = () => loadActive();
+
+  const selRep = qs('sel-rep');
+  data.commerciaux.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.TIRID; opt.textContent = c.nom;
+    selRep.appendChild(opt);
+  });
+  // Params URL quand page embarquée dans un iframe
+  const p = new URLSearchParams(location.search);
+  const anneeP = p.get('annee') || '';
+  if (anneeP.startsWith('ytd_exe:') || anneeP.startsWith('exe:') || anneeP === 'ytd' || /^\d+$/.test(anneeP)) {
+    qs('sel-annee').value = anneeP;
+  } else if (p.get('date_debut') && p.get('date_fin')) {
+    window._embedDates = { date_debut: p.get('date_debut'), date_fin: p.get('date_fin') };
+  } else if (p.get('annee')) {
+    qs('sel-annee').value = p.get('annee');
+  }
+  if (p.get('actif') !== null) window._embedActif = p.get('actif');
+  if (p.get('glissant')) qs('sel-glissant').value = p.get('glissant');
+  if (p.get('repid')) {
+    const rv = p.get('repid');
+    if (rv.includes(',')) {
+      window._embedRepid = rv; // multi-repid → stocké séparément
+    } else {
+      qs('sel-rep').value = rv; // repid simple → sélectionné dans la liste
+    }
+  }
+
+  loadActive();
+}
+
+init();
+</script>
+</body>
+</html>

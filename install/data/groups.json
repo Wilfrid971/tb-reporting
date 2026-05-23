@@ -1,0 +1,41 @@
+[
+  {
+    "id": "grp-admin",
+    "name": "Administrateurs",
+    "pages": [
+      "*"
+    ],
+    "dashboards": [
+      "*"
+    ],
+    "reports": [
+      "*"
+    ],
+    "pagePerms": {
+      "backoffice": [
+        "rapports",
+        "dashboards",
+        "sources"
+      ]
+    }
+  },
+  {
+    "id": "grp-users",
+    "name": "Utilisateurs",
+    "pages": [
+      "dashboard",
+      "settings"
+    ],
+    "pagePerms": {
+      "settings": [
+        "apparence"
+      ]
+    },
+    "dashboards": [
+      "*"
+    ],
+    "reports": [
+      "*"
+    ]
+  }
+]

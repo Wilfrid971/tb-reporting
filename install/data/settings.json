@@ -1,0 +1,46 @@
+{
+  "db": {
+    "type": "sqlserver",
+    "server": "",
+    "database": "",
+    "port": 1433,
+    "trusted": false,
+    "user": "",
+    "password": "",
+    "encrypt": false,
+    "trustCert": true
+  },
+  "as400": {
+    "host": "",
+    "database": "",
+    "user": "",
+    "password": "",
+    "port": 446,
+    "ssl": false,
+    "driver": "IBM i Access ODBC Driver"
+  },
+  "smtp": {
+    "preset": "custom",
+    "host": "",
+    "port": 587,
+    "secure": false,
+    "user": "",
+    "password": "",
+    "from": ""
+  },
+  "theme": {
+    "name": "dark"
+  },
+  "app": {
+    "dateFormat": "DD/MM/YYYY"
+  },
+  "calcul": {
+    "pr": "PLVCRUMP",
+    "mg": "sf"
+  },
+  "periodes": {
+    "nbExercices": 5,
+    "nbAnneesCal": 5
+  },
+  "loginDatabases": []
+}

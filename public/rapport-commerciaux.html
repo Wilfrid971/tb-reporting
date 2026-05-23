@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CA par Commercial — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
+      --text:#e2e8f0; --muted:#8892a4; --blue:#2196F3; --green:#4CAF50;
+      --orange:#FF9800; --red:#F44336; --radius:10px; --gap:14px;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+    html.embedded header{display:none}
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+    header h1{font-size:1rem;font-weight:600;white-space:nowrap}
+    .nav-link{color:var(--muted);font-size:.78rem;text-decoration:none;padding:4px 10px;
+      border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+    .nav-link:hover{color:var(--text);border-color:var(--blue)}
+    .spacer{flex:1}
+    .hdr-right{display:flex;align-items:center;gap:8px}
+    #last-update{font-size:.72rem;color:var(--muted)}
+    #status-dot{width:9px;height:9px;border-radius:50%;background:#666;flex-shrink:0}
+    #status-dot.ok{background:var(--green)} #status-dot.err{background:var(--red)}
+    #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;
+      border-radius:6px;font-size:.8rem;cursor:pointer}
+    #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
+    select{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer}
+
+    .container{max-width:1200px;margin:0 auto;padding:var(--gap)}
+    .error-banner{background:#2a1a1a;border:1px solid var(--red);border-radius:var(--radius);
+      padding:10px 14px;color:var(--red);font-size:.85rem;margin-bottom:var(--gap);display:none}
+
+    /* Layout 2 colonnes : tableau + camembert */
+    .report-grid{display:grid;grid-template-columns:1fr;gap:var(--gap)}
+    @media(min-width:900px){.report-grid{grid-template-columns:1fr 340px}}
+
+    /* Tableau */
+    .table-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+    .card-header{display:flex;align-items:center;gap:10px;padding:12px 16px;
+      background:var(--surface2);border-bottom:1px solid var(--border)}
+    .card-title{font-size:.9rem;font-weight:700}
+    .card-sub{font-size:.75rem;color:var(--muted);margin-left:auto}
+
+    .rep-table{width:100%;border-collapse:collapse}
+    .rep-table th,.rep-table td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--border);font-size:.82rem}
+    .rep-table th:first-child,.rep-table td:first-child{text-align:left;width:160px}
+    .rep-table thead th{font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;
+      letter-spacing:.05em;background:var(--surface2)}
+    .rep-table thead th.col-n{color:var(--blue)}
+    .rep-table thead th.col-evol{color:var(--muted);font-size:.65rem}
+    .rep-table tbody tr:hover{background:rgba(255,255,255,.03)}
+    .rep-table .row-total td{border-top:2px solid var(--border);font-weight:700;background:var(--surface2)}
+    .rep-table .row-total td:first-child{color:var(--text)}
+
+    /* section mois */
+    .mois-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;grid-column:1/-1}
+
+    .val-main{font-weight:600}
+    .val-pct{font-size:.72rem;color:var(--muted);margin-left:4px}
+    .val-pct.good{color:var(--green)} .val-pct.avg{color:var(--orange)} .val-pct.bad{color:var(--red)}
+    .mg-row{font-size:.7rem;margin-top:2px;white-space:nowrap;display:flex;gap:6px}
+    .evol{font-size:.73rem;display:block;margin-top:1px}
+    .evol.pos{color:var(--green)} .evol.neg{color:var(--red)}
+    .nom-cell{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+    .rank{font-size:.7rem;color:var(--muted);margin-right:4px}
+
+    /* Camembert */
+    .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      overflow:hidden;display:flex;flex-direction:column}
+    .chart-body{padding:16px;flex:1;display:flex;flex-direction:column;align-items:center;gap:12px}
+    .chart-body canvas{max-width:280px;max-height:280px}
+    .pie-legend{width:100%;font-size:.75rem}
+    .pie-legend-item{display:flex;align-items:center;gap:6px;padding:3px 0;
+      border-bottom:1px solid var(--border)}
+    .pie-legend-item:last-child{border-bottom:none}
+    .pie-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+    .pie-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+    .pie-val{color:var(--muted);white-space:nowrap}
+    .pie-pct{color:var(--blue);font-weight:600;white-space:nowrap;min-width:36px;text-align:right}
+
+    .skeleton{animation:pulse 1.4s ease-in-out infinite;background:var(--border);border-radius:4px;display:inline-block}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  </style>
+  <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+
+<header>
+  <h1>👥 CA par Commercial</h1>
+  <a class="nav-link" href="/rapport.html">← CA Global</a>
+  <a class="nav-link" href="/tb-reporting.html">TB Reporting</a>
+  <input type="date" id="sel-asof" title="Date du jour de référence (défaut : aujourd'hui)" onchange="load()">
+  <select id="sel-annee" onchange="onAnneeChange()">
+    <option value="ytd">YTD — Année en cours</option>
+  </select>
+  <select id="sel-pr" title="Prix de revient">
+    <option value="PLVCRUMP">CRUMP (défaut)</option>
+    <option value="PLVPRMP">PRMP</option>
+    <option value="PLVLASTPR">Dernier PR</option>
+  </select>
+  <select id="sel-pa" title="Prix d'achat">
+    <option value="PLVLASTPA">Dernier PA (défaut)</option>
+    <option value="PLVPMP">PMP</option>
+    <option value="PLVCUMP">CUMP</option>
+  </select>
+  <select id="sel-mg" onchange="load()" title="Type de marge">
+    <option value="sf">Marge SF</option>
+    <option value="af">Marge AF</option>
+  </select>
+  <div class="spacer"></div>
+  <div class="hdr-right">
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button id="refresh-btn" onclick="load()">↻ Actualiser</button>
+  </div>
+</header>
+
+<div class="container">
+  <div id="error-banner" class="error-banner"></div>
+  <div id="report" class="report-grid"></div>
+</div>
+
+<script>
+const API   = '/api/commercial';
+const LS_PR = 'tb_prix_revient';
+const LS_MG = 'tb_mg_type';
+
+function qs(id) { return document.getElementById(id); }
+function fmt(n, dec=0) {
+  if (n===null||n===undefined||isNaN(n)) return '—';
+  return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec}).format(n);
+}
+function pct(v, ca) { return ca > 0 ? v / ca * 100 : null; }
+function evolPct(n, ref) { return ref > 0 ? (n - ref) / ref * 100 : null; }
+function pctClass(p) {
+  if (p === null) return '';
+  if (p >= 30) return 'good'; if (p >= 20) return 'avg'; return 'bad';
+}
+function evolHtml(n, ref) {
+  const e = evolPct(n, ref);
+  const delta = (typeof n === 'number' && typeof ref === 'number') ? (n - ref) : null;
+  if (e === null && delta === null) return '';
+  const cls = (e ?? delta) >= 0 ? 'pos' : 'neg';
+  const arrow = (e ?? delta) >= 0 ? '▲' : '▼';
+  const sign = (delta ?? 0) >= 0 ? '+' : '';
+  const deltaStr = delta !== null ? `${sign}${fmt(delta)} €` : '';
+  const pctStr   = e     !== null ? `${e >= 0 ? '+' : ''}${fmt(e,1)} %` : '';
+  const inner = [deltaStr, pctStr].filter(Boolean).join(' · ');
+  return `<span class="evol ${cls}">${arrow} ${inner}</span>`;
+}
+
+const PIE_COLORS = [
+  '#2196F3','#4CAF50','#FF9800','#9C27B0','#F44336','#00BCD4','#FF5722',
+  '#8BC34A','#E91E63','#03A9F4','#CDDC39','#795548','#607D8B','#FFC107',
+];
+
+function onAnneeChange() { load(); }
+
+function skeleton() {
+  return `<div class="table-card">
+    <div class="card-header"><span class="card-title">Chargement…</span></div>
+    <table class="rep-table"><tbody>
+      ${Array.from({length:5}, () => `<tr>${Array.from({length:5},()=>`<td><span class="skeleton" style="width:70px;height:14px">&nbsp;</span></td>`).join('')}</tr>`).join('')}
+    </tbody></table>
+  </div>`;
+}
+
+let pieChart = null;
+
+function renderPie(rows, anneeN) {
+  const top = rows.filter(r => r.ca[0] > 0).slice(0, 12);
+  const total = top.reduce((s, r) => s + r.ca[0], 0);
+
+  const html = `
+    <div class="chart-card">
+      <div class="card-header">
+        <span class="card-title">📊 Répartition CA</span>
+        <span class="card-sub">${anneeN}</span>
+      </div>
+      <div class="chart-body">
+        <canvas id="chart-pie"></canvas>
+        <div class="pie-legend" id="pie-legend"></div>
+      </div>
+    </div>`;
+
+  return { html, top, total };
+}
+
+function buildPieChart(top, total) {
+  const ctx = qs('chart-pie').getContext('2d');
+  if (pieChart) pieChart.destroy();
+  pieChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: top.map(r => r.nom),
+      datasets: [{
+        data: top.map(r => r.ca[0]),
+        backgroundColor: top.map((_, i) => PIE_COLORS[i % PIE_COLORS.length]),
+        borderColor: '#1a1d2e', borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: c => ` ${c.label} : ${fmt(c.raw)} € (${fmt(total > 0 ? c.raw/total*100 : 0, 1)} %)`
+        }}
+      }
+    }
+  });
+
+  // Légende custom
+  const leg = qs('pie-legend');
+  leg.innerHTML = top.map((r, i) => `
+    <div class="pie-legend-item">
+      <span class="pie-dot" style="background:${PIE_COLORS[i % PIE_COLORS.length]}"></span>
+      <span class="pie-name" title="${r.nom}">${r.nom}</span>
+      <span class="pie-val">${fmt(r.ca[0])} €</span>
+      <span class="pie-pct">${fmt(total > 0 ? r.ca[0]/total*100 : 0, 1)} %</span>
+    </div>`).join('');
+}
+
+function renderTable(data) {
+  const [nNum, n1Num] = data.annees;
+  const labels = data.anneesLabel || data.annees;
+  const [n, n1] = labels;
+  const periodeLabel = data.isYtdExe
+    ? `Exercice YTD — du ${formatDate(data.dateDebut)} au ${formatDate(data.dateFin)}`
+    : data.isFull
+    ? `${n} — du ${formatDate(data.dateDebut)} au ${formatDate(data.dateFin)}`
+    : `${n} — YTD au ${formatDate(data.today)}`;
+
+  const prLabel = {PLVCRUMP:'CRUMP',PLVPRMP:'PRMP',PLVLASTPR:'Dernier PR'}[qs('sel-pr').value] || 'CRUMP';
+  const mgType  = qs('sel-mg').value; // 'sf' or 'af'
+  const mgLabel = mgType === 'sf' ? 'SF' : 'AF';
+
+  function rowHtml(r, rank) {
+    const [ca0, ca1] = r.ca;
+    const mg0 = mgType === 'sf' ? r.mgsf[0] : r.mgaf[0];
+    const mg1 = mgType === 'sf' ? r.mgsf[1] : r.mgaf[1];
+    const isTotal = !rank;
+
+    const p0 = pct(mg0, ca0), p1 = pct(mg1, ca1);
+    const rankHtml = rank ? `<span class="rank">#${rank}</span>` : '';
+
+    return `
+      <tr class="${isTotal ? 'row-total' : ''}">
+        <td class="nom-cell" title="${r.nom}">${rankHtml}${r.nom}</td>
+        <td><span class="val-main">${fmt(ca0)} €</span></td>
+        <td><span class="val-main">${fmt(mg0)} €</span>
+            <span class="val-pct ${pctClass(p0)}">${p0 !== null ? fmt(p0,1)+' %' : '—'}</span></td>
+        <td><span class="val-main">${fmt(ca1)} €</span></td>
+        <td><span class="val-main">${fmt(mg1)} €</span>
+            <span class="val-pct ${pctClass(p1)}">${p1 !== null ? fmt(p1,1)+' %' : '—'}</span></td>
+        <td>${evolHtml(ca0, ca1)}</td>
+        <td>${evolHtml(mg0, mg1)}</td>
+      </tr>`;
+  }
+
+  const rows = data.rows.map((r, i) => rowHtml(r, i + 1)).join('');
+  const totalRow = rowHtml(data.total, 0);
+
+  return `
+    <div class="table-card">
+      <div class="card-header">
+        <span class="card-title">👥 CA par Commercial</span>
+        <span class="card-sub">${periodeLabel} · PR : ${prLabel} · Marge : ${mgLabel}</span>
+      </div>
+      <table class="rep-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th class="col-n">CA ${n} <small>(N)</small></th>
+            <th class="col-n">Mg ${mgLabel} <small>(N)</small></th>
+            <th>CA ${n1} <small>(N-1)</small></th>
+            <th>Mg ${mgLabel} <small>(N-1)</small></th>
+            <th class="col-evol">Évol CA N/N-1</th>
+            <th class="col-evol">Évol Mg N/N-1</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          ${totalRow}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderTableMois(data) {
+  const mgType  = qs('sel-mg').value;
+  const mgLabel = mgType === 'sf' ? 'SF' : 'AF';
+  const prLabel = {PLVCRUMP:'CRUMP',PLVPRMP:'PRMP',PLVLASTPR:'Dernier PR'}[qs('sel-pr').value] || 'CRUMP';
+  const n  = data.annees[0];
+  const n1 = data.annees[1];
+  const mLabel   = data.moisLabel || '';
+  const mLabelN1 = mLabel.replace(String(n), String(n1));
+
+  function rowMois(r, rank) {
+    const [ca0, ca1] = r.cam;
+    const mg0 = mgType === 'sf' ? r.mgsfm[0] : r.mgafm[0];
+    const mg1 = mgType === 'sf' ? r.mgsfm[1] : r.mgafm[1];
+    const p0 = pct(mg0, ca0), p1 = pct(mg1, ca1);
+    const rankHtml = rank ? `<span class="rank">#${rank}</span>` : '';
+    const isTotal = !rank;
+    return `
+      <tr class="${isTotal ? 'row-total' : ''}">
+        <td class="nom-cell" title="${r.nom}">${rankHtml}${r.nom}</td>
+        <td><span class="val-main">${fmt(ca0)} €</span></td>
+        <td><span class="val-main">${fmt(mg0)} €</span>
+            <span class="val-pct ${pctClass(p0)}">${p0 !== null ? fmt(p0,1)+' %' : '—'}</span></td>
+        <td><span class="val-main">${fmt(ca1)} €</span></td>
+        <td><span class="val-main">${fmt(mg1)} €</span>
+            <span class="val-pct ${pctClass(p1)}">${p1 !== null ? fmt(p1,1)+' %' : '—'}</span></td>
+        <td>${evolHtml(ca0, ca1)}</td>
+        <td>${evolHtml(mg0, mg1)}</td>
+      </tr>`;
+  }
+
+  const rowsSorted = [...data.rows].sort((a, b) => b.cam[0] - a.cam[0]);
+  const rows = rowsSorted.map((r, i) => rowMois(r, i + 1)).join('');
+  const totalRow = rowMois(data.total, 0);
+
+  return `
+    <div class="mois-card">
+      <div class="card-header">
+        <span class="card-title">📆 Mois en cours — ${mLabel}</span>
+        <span class="card-sub">du ${formatDate(data.moisDebut)} au ${formatDate(data.moisFin)} · PR : ${prLabel} · Marge : ${mgLabel}</span>
+      </div>
+      <table class="rep-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th class="col-n">CA ${mLabel}</th>
+            <th class="col-n">Mg ${mgLabel} ${mLabel}</th>
+            <th>CA ${mLabelN1}</th>
+            <th>Mg ${mgLabel} ${mLabelN1}</th>
+            <th class="col-evol">Évol CA N/N-1</th>
+            <th class="col-evol">Évol Mg N/N-1</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+          ${totalRow}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+async function load() {
+  const btn = qs('refresh-btn');
+  const dot = qs('status-dot');
+  const banner = qs('error-banner');
+  btn.disabled = true; btn.textContent = '…';
+  qs('report').innerHTML = skeleton();
+
+  const annee = qs('sel-annee').value;
+  const pr    = qs('sel-pr').value;
+  const pa    = qs('sel-pa')?.value || 'PLVLASTPA';
+  const asof  = qs('sel-asof')?.value || '';
+  // full = année complète ; YTD calendaire ("ytd") ET YTD exercice ("ytd_exe:...") sont en mode non-full
+  const full  = annee !== 'ytd' && !annee.startsWith('ytd_exe:');
+  const params = new URLSearchParams();
+  if (annee) params.set('annee', annee);
+  if (full)  params.set('full', '1');
+  if (pr)    params.set('pr', pr);
+  if (pa)    params.set('pa', pa);
+  if (asof)  params.set('asof', asof);
+  const urlParams = new URLSearchParams(location.search);
+  const dbsP  = urlParams.get('dbs');
+  const actifP = urlParams.get('actif') ?? 'O';
+  if (dbsP)          params.set('dbs', dbsP);
+  if (actifP !== null) params.set('actif', actifP);
+
+  try {
+    const data = await fetch(`${API}/rapport-ca-commerciaux?${params}`).then(r => r.json());
+    if (data.error) throw new Error(data.error);
+
+    const pieLabel = (data.anneesLabel || data.annees)[0];
+    const { html: pieHtml, top, total } = renderPie(data.rows, pieLabel);
+    qs('report').innerHTML = renderTableMois(data) + renderTable(data) + pieHtml;
+    buildPieChart(top, total);
+
+    dot.className = 'ok';
+    banner.style.display = 'none';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch (err) {
+    dot.className = 'err';
+    banner.style.display = 'block';
+    banner.textContent = 'Erreur : ' + err.message;
+    qs('report').innerHTML = '';
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+async function initFilters() {
+  const urlPr = new URLSearchParams(location.search).get('pr');
+  const urlMg = new URLSearchParams(location.search).get('mg');
+
+  if (urlPr) {
+    qs('sel-pr').value = urlPr;
+  } else {
+    const saved = localStorage.getItem(LS_PR);
+    if (saved) {
+      qs('sel-pr').value = saved;
+    } else {
+      try {
+        const cfg = await fetch('/api/settings').then(r => r.json());
+        if (cfg.calcul?.pr) qs('sel-pr').value = cfg.calcul.pr;
+        if (cfg.calcul?.mg && !urlMg && !localStorage.getItem(LS_MG)) qs('sel-mg').value = cfg.calcul.mg;
+      } catch {}
+    }
+  }
+  qs('sel-pr').onchange = () => { localStorage.setItem(LS_PR, qs('sel-pr').value); load(); };
+  if (qs('sel-pa')) qs('sel-pa').onchange = () => load();
+
+  if (urlMg) {
+    qs('sel-mg').value = urlMg;
+  } else {
+    const savedMg = localStorage.getItem(LS_MG);
+    if (savedMg) qs('sel-mg').value = savedMg;
+  }
+  qs('sel-mg').onchange = () => { localStorage.setItem(LS_MG, qs('sel-mg').value); load(); };
+
+  const data = await fetch(`${API}/filters`).then(r => r.json());
+  const curY = new Date().getFullYear();
+  const selAn = qs('sel-annee');
+  const pastAnnees = data.annees.filter(a => a < curY);
+
+  const today = new Date();
+  const p2 = n => String(n).padStart(2,'0');
+  const todayStr = `${today.getFullYear()}-${p2(today.getMonth()+1)}-${p2(today.getDate())}`;
+  const curExe = (data.exercices||[]).find(e => e.date_debut <= todayStr && todayStr <= e.date_fin);
+
+  let anHtml = '';
+  if (data.exercices?.length) {
+    anHtml += '<optgroup label="YTD exercice">';
+    data.exercices.forEach(e => {
+      const isCur = curExe && e.date_debut === curExe.date_debut;
+      anHtml += `<option value="ytd_exe:${e.date_debut}:${e.date_fin}"${isCur?' selected':''}>YTD ${e.libelle || e.annee_debut}${isCur?' (en cours)':''}</option>`;
+    });
+    anHtml += '</optgroup>';
+  }
+  anHtml += `<option value="ytd"${curExe?'':' selected'}>YTD calendaire — ${curY} (jusqu'à aujourd'hui)</option>`;
+  anHtml += `<option value="${curY}">${curY} — Année complète</option>`;
+  if (pastAnnees.length) {
+    anHtml += '<optgroup label="Années calendaires">';
+    pastAnnees.forEach(a => { anHtml += `<option value="${a}">${a}</option>`; });
+    anHtml += '</optgroup>';
+  }
+  if (data.exercices?.length) {
+    anHtml += '<optgroup label="Exercices fiscaux (complets)">';
+    data.exercices.forEach(e => {
+      anHtml += `<option value="exe:${e.date_debut}:${e.date_fin}">${e.libelle || e.annee_debut}</option>`;
+    });
+    anHtml += '</optgroup>';
+  }
+  selAn.innerHTML = anHtml;
+
+  const p = new URLSearchParams(location.search);
+  if (p.get('annee')) selAn.value = p.get('annee');
+  if (p.get('pr'))    qs('sel-pr').value = p.get('pr');
+  if (p.get('pa') && qs('sel-pa')) qs('sel-pa').value = p.get('pa');
+  if (p.get('mg'))    qs('sel-mg').value = p.get('mg');
+  // Date du jour de référence : URL > aujourd'hui réel
+  if (qs('sel-asof')) qs('sel-asof').value = p.get('asof') || todayStr;
+}
+
+initFilters().then(load);
+</script>
+</body>
+</html>

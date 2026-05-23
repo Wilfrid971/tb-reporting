@@ -1,0 +1,80 @@
+[
+  {
+    "id": "moa3kkmijn49",
+    "createdAt": "2026-04-22T13:37:26.634Z",
+    "widgets": [
+      {
+        "title": "TBLEAU FOURNISSEURS",
+        "source": "_auto",
+        "params": {
+          "filters": [],
+          "periode_debut": "cal:2026"
+        },
+        "measures": [
+          "ca",
+          "marge_af_prmp"
+        ],
+        "ruptures": [
+          "fournisseur_nom"
+        ],
+        "pivotCols": [
+          "time_annee",
+          "time_trimestre"
+        ],
+        "width": "full",
+        "detailDims": [
+          "art_marque"
+        ],
+        "displayType": "table",
+        "showTotals": false,
+        "chartType": "bar",
+        "pivot": true,
+        "dimensions": [
+          "fournisseur_nom",
+          "art_marque",
+          "time_annee",
+          "time_trimestre"
+        ]
+      },
+      {
+        "title": "CA FOURNISSEURS",
+        "source": "_auto",
+        "params": {
+          "filters": [],
+          "periode_debut": "cal:2026"
+        },
+        "measures": [
+          "ca",
+          "marge_af_last"
+        ],
+        "ruptures": [
+          "fournisseur_nom",
+          "art_marque"
+        ],
+        "pivotCols": [
+          "time_annee"
+        ],
+        "width": "full",
+        "detailDims": [],
+        "displayType": "chart",
+        "showTotals": false,
+        "chartType": "bar",
+        "pivot": true,
+        "dimensions": [
+          "fournisseur_nom",
+          "art_marque",
+          "time_annee"
+        ],
+        "chartSeriesBy": "row",
+        "sortDir": "desc",
+        "topN": 0
+      }
+    ],
+    "name": "TABLEAU DE BORD TEST",
+    "description": "",
+    "groups": [
+      "*"
+    ],
+    "updatedAt": "2026-04-23T00:17:01.547Z"
+  }
+]

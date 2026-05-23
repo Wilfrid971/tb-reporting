@@ -1,0 +1,49 @@
+[
+  {
+    "id": "grp-admin",
+    "name": "Administrateurs",
+    "pages": [
+      "*"
+    ],
+    "dashboards": [
+      "*"
+    ],
+    "reports": [
+      "*"
+    ],
+    "pagePerms": {
+      "backoffice": [
+        "rapports",
+        "dashboards",
+        "sources"
+      ]
+    }
+  },
+  {
+    "id": "grp-users",
+    "name": "Utilisateurs",
+    "pages": [
+      "dashboard",
+      "backoffice",
+      "settings"
+    ],
+    "pagePerms": {
+      "backoffice": [
+        "rapports",
+        "dashboards",
+        "builtins",
+        "objectifs",
+        "sources"
+      ],
+      "settings": [
+        "apparence"
+      ]
+    },
+    "dashboards": [
+      "*"
+    ],
+    "reports": [
+      "*"
+    ]
+  }
+]

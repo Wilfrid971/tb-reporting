@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rapport CA Global — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
+      --text:#e2e8f0; --muted:#8892a4; --blue:#2196F3; --green:#4CAF50;
+      --orange:#FF9800; --red:#F44336; --radius:10px; --gap:14px;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+    html.embedded header{display:none}
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+    header h1{font-size:1rem;font-weight:600;white-space:nowrap}
+    .nav-link{color:var(--muted);font-size:.78rem;text-decoration:none;padding:4px 10px;
+      border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+    .nav-link:hover{color:var(--text);border-color:var(--blue)}
+    .spacer{flex:1}
+    .hdr-right{display:flex;align-items:center;gap:8px}
+    #last-update{font-size:.72rem;color:var(--muted)}
+    #status-dot{width:9px;height:9px;border-radius:50%;background:#666;flex-shrink:0}
+    #status-dot.ok{background:var(--green)} #status-dot.err{background:var(--red)}
+    #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;
+      border-radius:6px;font-size:.8rem;cursor:pointer}
+    #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
+    select{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer}
+
+    .container{max-width:1100px;margin:0 auto;padding:var(--gap)}
+    .error-banner{background:#2a1a1a;border:1px solid var(--red);border-radius:var(--radius);
+      padding:10px 14px;color:var(--red);font-size:.85rem;margin-bottom:var(--gap);display:none}
+
+    /* ── Section ── */
+    .section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      margin-bottom:var(--gap);overflow:hidden}
+    .section-header{display:flex;align-items:center;gap:10px;padding:12px 16px;
+      background:var(--surface2);border-bottom:1px solid var(--border)}
+    .section-icon{font-size:1.1rem}
+    .section-title{font-size:.9rem;font-weight:700}
+    .section-sub{font-size:.75rem;color:var(--muted);margin-left:auto}
+
+    /* ── Table rapport ── */
+    .rapport-table{width:100%;border-collapse:collapse}
+    .rapport-table th,.rapport-table td{padding:10px 14px;text-align:right;border-bottom:1px solid var(--border)}
+    .rapport-table th:first-child,.rapport-table td:first-child{text-align:left;color:var(--muted);font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;width:180px}
+    .rapport-table thead th{font-size:.75rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:var(--surface2)}
+    .rapport-table thead th.col-n{color:var(--blue)}
+    .rapport-table thead th.col-evol{color:var(--muted);font-size:.7rem}
+
+    .val-main{font-size:.92rem;font-weight:600}
+    .val-pct{font-size:.75rem;color:var(--muted);margin-left:4px}
+    .val-pct.good{color:var(--green)}
+    .val-pct.avg{color:var(--orange)}
+    .val-pct.bad{color:var(--red)}
+    .evol{font-size:.76rem;display:block;margin-top:2px}
+    .evol.pos{color:var(--green)} .evol.neg{color:var(--red)} .evol.neu{color:var(--muted)}
+
+    .row-ca td{border-bottom:2px solid var(--border)}
+    .row-sf td,.row-af td{background:rgba(0,0,0,.12)}
+    .row-sf td:first-child{padding-left:24px}
+    .row-af td:first-child{padding-left:24px}
+
+    tr.row-sep td{padding:0;height:6px;background:var(--bg);border:none}
+
+    .skeleton{animation:pulse 1.4s ease-in-out infinite;background:var(--border);border-radius:4px;display:inline-block}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  </style>
+  <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+
+<header>
+  <h1>📋 Rapport CA Global</h1>
+  <a class="nav-link" href="/tb-reporting.html">← TB Reporting</a>
+  <a class="nav-link" href="/rapports.html">📋 Rapports</a>
+  <a class="nav-link" href="/backoffice.html">⚙️ Backoffice</a>
+  <a class="nav-link" href="/settings.html">Paramètres</a>
+  <select id="sel-annee" title="Année de référence" onchange="onAnneeChange()">
+    <option value="">Année en cours</option>
+  </select>
+  <select id="sel-mois" title="Mois de référence" onchange="load()">
+    <option value="">— Tout l'année —</option>
+    <option value="1">Janvier</option><option value="2">Février</option>
+    <option value="3">Mars</option><option value="4">Avril</option>
+    <option value="5">Mai</option><option value="6">Juin</option>
+    <option value="7">Juillet</option><option value="8">Août</option>
+    <option value="9">Septembre</option><option value="10">Octobre</option>
+    <option value="11">Novembre</option><option value="12">Décembre</option>
+  </select>
+  <select id="sel-rep">
+    <option value="">Tous les commerciaux</option>
+  </select>
+  <select id="sel-pr" title="Prix de revient utilisé pour le calcul de marge">
+    <option value="PLVCRUMP">CRUMP (défaut)</option>
+    <option value="PLVPRMP">PRMP</option>
+    <option value="PLVLASTPR">Dernier PR</option>
+  </select>
+  <div class="spacer"></div>
+  <div class="hdr-right">
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button id="refresh-btn" onclick="load()">↻ Actualiser</button>
+  </div>
+</header>
+
+<div class="container">
+  <div id="error-banner" class="error-banner"></div>
+  <div id="sections"></div>
+</div>
+
+<script>
+const API = '/api/commercial';
+const LS_PR = 'tb_prix_revient';
+
+function qs(id) { return document.getElementById(id); }
+function fmt(n, dec=0) {
+  if (n===null||n===undefined||isNaN(n)) return '—';
+  return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec}).format(n);
+}
+function pct(v, ca) { return ca > 0 ? v / ca * 100 : null; }
+function evolPct(n, ref) { return ref > 0 ? (n - ref) / ref * 100 : null; }
+
+function pctClass(p) {
+  if (p === null) return '';
+  if (p >= 30) return 'good';
+  if (p >= 20) return 'avg';
+  return 'bad';
+}
+
+function evolHtml(n, ref) {
+  const e = evolPct(n, ref);
+  if (e === null) return '';
+  const cls = e >= 0 ? 'pos' : 'neg';
+  const arrow = e >= 0 ? '▲' : '▼';
+  return `<span class="evol ${cls}">${arrow} ${e >= 0 ? '+' : ''}${fmt(e,1)} %</span>`;
+}
+
+function cellCA(val, ref) {
+  const e = ref !== undefined ? evolHtml(ref, val) : '';
+  return `<td><span class="val-main">${fmt(val)} €</span>${e}</td>`;
+}
+
+function cellMarge(val, ca) {
+  const p = pct(val, ca);
+  const pStr = p !== null ? `<span class="val-pct ${pctClass(p)}">${fmt(p,1)} %</span>` : '';
+  return `<td><span class="val-main">${fmt(val)} €</span>${pStr}</td>`;
+}
+
+function renderSection(title, icon, subtitle, data, annees, anneesLabel) {
+  const labels = anneesLabel || annees;
+  const [n, n1, n2] = labels;
+  const ca = data.ca, sf = data.mgsf, af = data.mgaf;
+
+  return `
+  <div class="section">
+    <div class="section-header">
+      <span class="section-icon">${icon}</span>
+      <span class="section-title">${title}</span>
+      <span class="section-sub">${subtitle}</span>
+    </div>
+    <table class="rapport-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th class="col-n">${n} <small>(N)</small></th>
+          <th>${n1} <small>(N-1)</small></th>
+          <th class="col-evol">Évol N/N-1</th>
+          <th>${n2} <small>(N-2)</small></th>
+          <th class="col-evol">Évol N/N-2</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="row-ca">
+          <td>CA HT</td>
+          <td><span class="val-main">${fmt(ca[0])} €</span></td>
+          <td><span class="val-main">${fmt(ca[1])} €</span></td>
+          <td>${evolHtml(ca[0], ca[1])}</td>
+          <td><span class="val-main">${fmt(ca[2])} €</span></td>
+          <td>${evolHtml(ca[0], ca[2])}</td>
+        </tr>
+        <tr class="row-sf">
+          <td>Marge brute (sans frais)</td>
+          ${cellMarge(sf[0], ca[0])}
+          ${cellMarge(sf[1], ca[1])}
+          <td>${evolHtml(sf[0], sf[1])}</td>
+          ${cellMarge(sf[2], ca[2])}
+          <td>${evolHtml(sf[0], sf[2])}</td>
+        </tr>
+        <tr class="row-af">
+          <td>Marge nette (avec frais)</td>
+          ${cellMarge(af[0], ca[0])}
+          ${cellMarge(af[1], ca[1])}
+          <td>${evolHtml(af[0], af[1])}</td>
+          ${cellMarge(af[2], ca[2])}
+          <td>${evolHtml(af[0], af[2])}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>`;
+}
+
+function skeleton() {
+  return ['Aujourd\'hui','Mois en cours','Année en cours'].map(t => `
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">${t}</span>
+      </div>
+      <table class="rapport-table">
+        <tbody>
+          ${['CA HT','Marge brute','Marge nette'].map(() => `
+            <tr><td style="width:180px">&nbsp;</td>
+            ${[1,2,3,4,5].map(() => `<td><span class="skeleton" style="width:80px;height:16px">&nbsp;</span></td>`).join('')}
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`).join('');
+}
+
+function onAnneeChange() {
+  // Désactiver le mois si exercice fiscal sélectionné (valeur exe:... ou ytd_exe:...)
+  const v = qs('sel-annee').value;
+  const isMoisDisabled = v.startsWith('exe:') || v.startsWith('ytd_exe:');
+  qs('sel-mois').disabled = isMoisDisabled;
+  if (isMoisDisabled) qs('sel-mois').value = '';
+  load();
+}
+
+async function initFilters() {
+  const saved = localStorage.getItem(LS_PR);
+  if (saved) qs('sel-pr').value = saved;
+  qs('sel-pr').onchange = () => { localStorage.setItem(LS_PR, qs('sel-pr').value); load(); };
+
+  const data = await fetch(`${API}/filters`).then(r => r.json());
+  const curY = new Date().getFullYear();
+
+  // Exercice en cours = celui qui contient today
+  const today = new Date();
+  const p2 = n => String(n).padStart(2,'0');
+  const todayStr = `${today.getFullYear()}-${p2(today.getMonth()+1)}-${p2(today.getDate())}`;
+  const curExe = (data.exercices||[]).find(e => e.date_debut <= todayStr && todayStr <= e.date_fin);
+
+  // Sélecteur d'année avec YTD exercice en tête, YTD calendaire, puis années complètes
+  const selAn = qs('sel-annee');
+  let anHtml = '';
+  if (data.exercices?.length) {
+    anHtml += '<optgroup label="YTD exercice">';
+    data.exercices.forEach(e => {
+      const isCur = curExe && e.date_debut === curExe.date_debut;
+      anHtml += `<option value="ytd_exe:${e.date_debut}:${e.date_fin}"${isCur?' selected':''}>YTD ${e.libelle || e.annee_debut}${isCur?' (en cours)':''}</option>`;
+    });
+    anHtml += '</optgroup>';
+  }
+  anHtml += `<option value="ytd"${curExe?'':' selected'}>YTD calendaire — ${curY}</option>`;
+  anHtml += '<optgroup label="Années calendaires">';
+  data.annees.forEach(a => { anHtml += `<option value="${a}">${a}</option>`; });
+  anHtml += '</optgroup>';
+  if (data.exercices?.length) {
+    anHtml += '<optgroup label="Exercices fiscaux (complets)">';
+    data.exercices.forEach(e => {
+      anHtml += `<option value="exe:${e.date_debut}:${e.date_fin}">${e.libelle || e.annee_debut}</option>`;
+    });
+    anHtml += '</optgroup>';
+  }
+  selAn.innerHTML = anHtml;
+
+  // Sélecteur commercial
+  const selRep = qs('sel-rep');
+  data.commerciaux.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.TIRID; opt.textContent = c.nom;
+    selRep.appendChild(opt);
+  });
+  selRep.onchange = load;
+
+  // Params URL quand page embarquée dans un iframe
+  const p = new URLSearchParams(location.search);
+  if (p.get('annee')) { qs('sel-annee').value = p.get('annee'); onAnneeChange(); }
+  if (p.get('mois'))  qs('sel-mois').value  = p.get('mois');
+  if (p.get('repid')) qs('sel-rep').value   = p.get('repid');
+  if (p.get('pr'))    qs('sel-pr').value    = p.get('pr');
+}
+
+async function load() {
+  const btn = qs('refresh-btn');
+  const dot = qs('status-dot');
+  const banner = qs('error-banner');
+  btn.disabled = true; btn.textContent = '…';
+  qs('sections').innerHTML = skeleton();
+
+  const repid = qs('sel-rep').value;
+  const pr    = qs('sel-pr').value;
+  const annee = qs('sel-annee').value;
+  const mois  = qs('sel-mois').value;
+  const params = new URLSearchParams();
+  if (repid) params.set('repid', repid);
+  if (pr)    params.set('pr', pr);
+  if (annee) params.set('annee', annee);
+  if (mois)  params.set('mois', mois);
+  const qs_ = params.toString() ? '?' + params.toString() : '';
+
+  try {
+    const data = await fetch(`${API}/rapport-ca${qs_}`).then(r => r.json());
+    if (data.error) throw new Error(data.error);
+
+    const MOIS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+    const todayDate = new Date(data.today + 'T00:00:00');
+    const nomMois   = MOIS_FR[todayDate.getMonth()];
+    const annee     = data.annees[0];
+    const todayFmt  = formatDate(data.today);
+
+    const prLabel = { PLVCRUMP: 'CRUMP', PLVPRMP: 'PRMP', PLVLASTPR: 'Dernier PR' }[pr] || 'CRUMP';
+    const prSub = `· PR : ${prLabel}`;
+
+    qs('sections').innerHTML =
+      renderSection(
+        'Aujourd\'hui', '📅',
+        `${todayFmt} ${prSub}`,
+        data.jour, data.annees, null   // jour = date précise, pas besoin de libellé fiscal
+      ) +
+      renderSection(
+        'Mois en cours', '📆',
+        `${nomMois} ${annee} — du ${formatDate(data.today.slice(0,8) + '01')} au ${todayFmt} ${prSub}`,
+        data.mois, data.annees, null   // mois = calendaire (ex: "Avr 2026" vs "Avr 2025")
+      ) +
+      renderSection(
+        data.isYtdExe ? 'Exercice en cours (YTD)' : 'Année en cours', '📊',
+        `${formatDate(data.dateDebut)} → ${formatDate(data.dateFin)} ${prSub}`,
+        data.annee, data.annees, data.anneesLabel
+      );
+
+    dot.className = 'ok';
+    banner.style.display = 'none';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch (err) {
+    dot.className = 'err';
+    banner.style.display = 'block';
+    banner.textContent = 'Erreur : ' + err.message;
+    qs('sections').innerHTML = '';
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+initFilters().then(load);
+</script>
+</body>
+</html>

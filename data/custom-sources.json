@@ -1,0 +1,146 @@
+[
+  {
+    "id": "mo2ygegksjvo",
+    "createdAt": "2026-04-17T13:39:50.708Z",
+    "name": "CA GLOBAL",
+    "dimensions": [
+      "time_annee",
+      "time_mois_lib"
+    ],
+    "pivot": false,
+    "limit": 20,
+    "filters": {
+      "periode_debut": "2025",
+      "periode_fin": "ytd",
+      "mois": "",
+      "repid": ""
+    },
+    "updatedAt": "2026-04-17T17:54:14.558Z",
+    "rupture": "rep_nom",
+    "pivotCol": "time_mois_lib",
+    "pivotCols": [
+      "time_annee",
+      "time_mois_lib"
+    ],
+    "ruptures": [
+      "time_annee"
+    ],
+    "measures": [
+      "qte"
+    ]
+  },
+  {
+    "id": "mo38d773giv5",
+    "createdAt": "2026-04-17T18:17:17.487Z",
+    "name": "Ventes par famille",
+    "dimensions": [
+      "art_sousfamille",
+      "time_annee",
+      "art_categorie"
+    ],
+    "measures": [
+      "marge_sf",
+      "ca"
+    ],
+    "pivot": true,
+    "pivotCols": [
+      "time_annee"
+    ],
+    "ruptures": [
+      "art_sousfamille"
+    ],
+    "limit": 100,
+    "filters": {
+      "periode_debut": "",
+      "periode_fin": "",
+      "mois": "",
+      "repid": ""
+    },
+    "updatedAt": "2026-04-18T11:47:06.349Z"
+  },
+  {
+    "id": "mo47p6x9cm07",
+    "createdAt": "2026-04-18T10:46:23.565Z",
+    "name": "Ventes par Marque avec détail article",
+    "dimensions": [
+      "time_annee",
+      "time_mois_lib",
+      "art_marque",
+      "art_ref",
+      "art_designation"
+    ],
+    "measures": [
+      "ca"
+    ],
+    "pivot": false,
+    "pivotCols": [],
+    "ruptures": [],
+    "limit": 20,
+    "filters": {
+      "periode_debut": "",
+      "periode_fin": "",
+      "mois": "",
+      "repid": ""
+    },
+    "updatedAt": "2026-04-21T20:54:41.473Z",
+    "collapsible": true,
+    "groups": [
+      "*"
+    ]
+  },
+  {
+    "id": "mo4f2nd7b4fr",
+    "createdAt": "2026-04-18T14:12:48.715Z",
+    "name": "Ventes par Commercial",
+    "dimensions": [
+      "rep_nom",
+      "time_annee",
+      "time_mois_lib"
+    ],
+    "measures": [
+      "ca"
+    ],
+    "filters": {
+      "periode_debut": "2025",
+      "periode_fin": "2026",
+      "mois": "",
+      "repid": ""
+    },
+    "pivot": true,
+    "pivotCols": [
+      "time_mois_lib"
+    ],
+    "ruptures": [],
+    "limit": 50
+  },
+  {
+    "id": "mo97q705qium",
+    "createdAt": "2026-04-21T22:46:01.205Z",
+    "name": "Données de vente avec fournisseur",
+    "dimensions": [
+      "art_famille",
+      "fournisseur_code",
+      "time_annee"
+    ],
+    "measures": [
+      "ca",
+      "qte",
+      "marge_sf"
+    ],
+    "pivot": false,
+    "pivotCols": [],
+    "ruptures": [],
+    "limit": 20,
+    "filters": {
+      "periode_debut": "",
+      "periode_fin": "",
+      "mois": "",
+      "repid": ""
+    },
+    "collapsible": false,
+    "groups": [
+      "*"
+    ],
+    "updatedAt": "2026-04-21T22:59:24.446Z"
+  }
+]

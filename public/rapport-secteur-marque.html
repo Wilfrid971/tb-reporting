@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pénétration secteur × marque — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
+      --text:#e2e8f0; --muted:#8892a4; --blue:#2196F3; --green:#4CAF50;
+      --orange:#FF9800; --red:#F44336; --purple:#9C27B0; --radius:10px; --gap:14px;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+    /* En mode iframe dashboard : on cache titre + nav (le spacer reste pour
+       pousser les boutons d'action à droite). Filtres + Actualiser + Excel +
+       PDF restent visibles dans l'iframe — sinon impossible d'exporter. */
+    html.embedded header h1,
+    html.embedded header .nav-link { display: none; }
+    html.embedded header { padding:6px 10px; }
+    html.embedded header #last-update { display:none; }
+
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+    header h1{font-size:1rem;font-weight:600;white-space:nowrap}
+    .nav-link{color:var(--muted);font-size:.78rem;text-decoration:none;padding:4px 10px;
+      border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+    .nav-link:hover{color:var(--text);border-color:var(--blue)}
+    .spacer{flex:1}
+    .hdr-right{display:flex;align-items:center;gap:8px}
+    #last-update{font-size:.72rem;color:var(--muted)}
+    #status-dot{width:9px;height:9px;border-radius:50%;background:#666;flex-shrink:0}
+    #status-dot.ok{background:var(--green)} #status-dot.err{background:var(--red)}
+    #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;
+      border-radius:6px;font-size:.8rem;cursor:pointer}
+    #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
+    select{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer}
+
+    /* Multi-select */
+    .ms-wrap{position:relative;display:inline-flex}
+    .ms-btn{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer;
+      display:inline-flex;align-items:center;gap:6px;max-width:230px}
+    .ms-btn span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ms-btn:hover,.ms-btn.open{border-color:var(--blue)}
+    .ms-btn.active{border-color:var(--blue);color:var(--blue);background:rgba(33,150,243,.08)}
+    .ms-btn::after{content:'▾';font-size:.65rem;color:var(--muted);flex-shrink:0}
+    .ms-dd{position:absolute;top:calc(100% + 4px);left:0;
+      min-width:220px;max-height:320px;overflow-y:auto;
+      background:var(--surface);border:1px solid var(--border);
+      border-radius:6px;padding:4px 0;z-index:100;
+      box-shadow:0 6px 18px rgba(0,0,0,.35);display:none}
+    .ms-dd.open{display:block}
+    .ms-dd label{display:flex;align-items:center;gap:8px;padding:5px 12px;
+      font-size:.78rem;cursor:pointer;color:var(--text)}
+    .ms-dd label:hover{background:var(--surface2)}
+    .ms-dd label.all-opt{color:var(--muted);font-style:italic;
+      border-bottom:1px solid var(--border);margin-bottom:3px;padding-bottom:6px}
+    .ms-dd input[type=checkbox]{accent-color:var(--blue);cursor:pointer}
+
+    .container{max-width:1400px;margin:0 auto;padding:var(--gap)}
+    .error-banner{background:#2a1a1a;border:1px solid var(--red);border-radius:var(--radius);
+      padding:10px 14px;color:var(--red);font-size:.85rem;margin-bottom:var(--gap);display:none}
+
+    /* KPI cards */
+    .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--gap);
+      margin-bottom:var(--gap)}
+    .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:12px 14px}
+    .kpi-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+    .kpi-value{font-size:1.4rem;font-weight:700;margin-top:4px;color:var(--text)}
+    .kpi-sub{font-size:.72rem;color:var(--muted);margin-top:3px}
+    .kpi-sub.pos{color:var(--green)} .kpi-sub.neg{color:var(--red)}
+
+    /* Section */
+    .section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      margin-bottom:var(--gap);overflow:hidden}
+    .section-header{display:flex;align-items:center;gap:10px;padding:12px 16px;
+      background:var(--surface2);border-bottom:1px solid var(--border)}
+    .section-title{font-size:.9rem;font-weight:700}
+    .section-sub{font-size:.75rem;color:var(--muted);margin-left:auto}
+
+    /* Tree table */
+    .tree-table{width:100%;border-collapse:collapse;font-size:.82rem}
+    .tree-table th,.tree-table td{padding:6px 10px;border-bottom:1px solid var(--border);text-align:right}
+    .tree-table th{font-size:.7rem;color:var(--muted);font-weight:700;text-transform:uppercase;
+      letter-spacing:.04em;background:var(--surface2);position:sticky;top:0}
+    .tree-table th:first-child,.tree-table td.lbl{text-align:left}
+    .tree-table th.col-n{color:var(--blue)}
+    .tree-table th.col-evol{color:var(--muted);font-size:.65rem}
+
+    .lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:380px}
+    .lvl-1{background:rgba(33,150,243,.07)}
+    .lvl-1 td.lbl{padding-left:10px;font-weight:700;color:var(--text)}
+    .lvl-2 td.lbl{padding-left:30px;font-weight:600;color:#cbd5e1}
+    .lvl-3 td.lbl{padding-left:50px;color:#a8b3c7}
+    .lvl-4 td.lbl{padding-left:70px;color:var(--muted);font-size:.78rem}
+    .lvl-1 td{border-top:2px solid var(--border)}
+
+    .toggler{display:inline-block;width:14px;text-align:center;cursor:pointer;
+      color:var(--muted);user-select:none}
+    .toggler:hover{color:var(--blue)}
+
+    .val-main{font-weight:600}
+    .val-pct{font-size:.72rem;color:var(--muted);margin-left:4px}
+    .val-pct.good{color:var(--green)}
+    .val-pct.avg{color:var(--orange)}
+    .val-pct.bad{color:var(--red)}
+    .evol{font-size:.72rem;display:block;margin-top:1px}
+    .evol.pos{color:var(--green)} .evol.neg{color:var(--red)}
+    .muted{color:var(--muted)}
+
+    /* Absences */
+    .absences-card{background:var(--surface);border:1px solid var(--border);
+      border-radius:var(--radius);overflow:hidden;margin-bottom:var(--gap)}
+    .absences-sector{border-top:1px solid var(--border);padding:0}
+    .absences-sector:first-child{border-top:none}
+    .absences-head{padding:10px 16px;display:flex;align-items:center;gap:10px;
+      cursor:pointer;background:var(--surface2)}
+    .absences-head:hover{background:#272b40}
+    .absences-head .name{font-weight:700;font-size:.85rem}
+    .absences-head .count{color:var(--orange);font-size:.78rem;margin-left:auto}
+    .absences-list{padding:8px 16px 12px 36px;font-size:.78rem;display:none;color:#cbd5e1}
+    .absences-list.open{display:block}
+    .absences-list li{padding:3px 0;list-style:disc;margin-left:20px}
+    .absences-list .cli-cmd{color:var(--muted);font-size:.7rem;margin-left:6px}
+    .absences-empty{padding:16px;text-align:center;color:var(--muted);font-size:.85rem}
+
+    .skeleton{animation:pulse 1.4s ease-in-out infinite;background:var(--border);border-radius:4px;display:inline-block}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  </style>
+  <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+
+<header>
+  <h1>🎯 Pénétration secteur × marque</h1>
+  <a class="nav-link" href="/tb-reporting.html">← TB Reporting</a>
+  <a class="nav-link" href="/dashboard.html">📋 Rapports</a>
+  <select id="sel-annee" title="Période de référence (N). N-1 est dérivée automatiquement.">
+    <option value="ytd">YTD calendaire</option>
+  </select>
+  <div class="ms-wrap" id="ms-secteurs">
+    <button class="ms-btn" type="button" data-ms="secteurs"><span>Tous les secteurs</span></button>
+    <div class="ms-dd"></div>
+  </div>
+  <div class="ms-wrap" id="ms-marques">
+    <button class="ms-btn" type="button" data-ms="marques"><span>Toutes les marques</span></button>
+    <div class="ms-dd"></div>
+  </div>
+  <div class="ms-wrap" id="ms-familles">
+    <button class="ms-btn" type="button" data-ms="familles"><span>Toutes les familles</span></button>
+    <div class="ms-dd"></div>
+  </div>
+  <div class="ms-wrap" id="ms-reps">
+    <button class="ms-btn" type="button" data-ms="reps"><span>Tous les commerciaux</span></button>
+    <div class="ms-dd"></div>
+  </div>
+  <div class="ms-wrap" id="ms-mesures">
+    <button class="ms-btn" type="button" data-ms="mesures"><span>CA</span></button>
+    <div class="ms-dd"></div>
+  </div>
+  <select id="sel-pr" title="Prix de revient (pour les marges)">
+    <option value="PLVCRUMP">PR : CRUMP</option>
+    <option value="PLVPRMP">PR : PRMP</option>
+    <option value="PLVLASTPR">PR : Dernier</option>
+  </select>
+  <select id="sel-cliactif" title="Clients à inclure">
+    <option value="O" selected>Clients actifs</option>
+    <option value="N">Clients inactifs</option>
+    <option value="all">Tous les clients</option>
+    <option value="period">Clients avec CA sur N/N-1</option>
+  </select>
+  <select id="sel-view" title="Vue hiérarchique">
+    <option value="secteur" selected>Vue : Secteur → Marque → Cml → Article</option>
+    <option value="marque">Vue : Marque → Secteur → Cml → Article</option>
+  </select>
+  <div class="spacer"></div>
+  <div class="hdr-right">
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button id="refresh-btn" onclick="closeAllDropdowns(); load();">↻ Actualiser</button>
+    <button id="excel-btn" onclick="closeAllDropdowns(); exportExcel();" title="Télécharger en Excel" style="background:#1b5e20;border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer">📊 Excel</button>
+    <button id="pdf-btn" onclick="closeAllDropdowns(); exportPDF();" title="Ouvrir en PDF" style="background:#b71c1c;border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer">🖨️ PDF</button>
+  </div>
+</header>
+
+<div class="container">
+  <div id="error-banner" class="error-banner"></div>
+  <div id="kpis" class="kpi-row"></div>
+  <div id="tree-section" class="section"></div>
+  <div id="chart-presence-section"></div>
+  <div id="absences-section"></div>
+  <div id="gaps-section"></div>
+  <div id="gaps-client-section"></div>
+</div>
+
+<script>
+const API = '/api/commercial';
+const STORAGE_KEY = 'rapport-secteur-marque:state';
+
+// DB context — repris depuis l'URL (le dashboard injecte ?dbs=... dans l'iframe).
+// Si présent, on l'ajoute à toutes les requêtes API pour respecter le choix de base
+// de l'utilisateur (sinon l'API utiliserait la base par défaut du compte).
+const URL_PARAMS = new URLSearchParams(location.search);
+const URL_DBS    = URL_PARAMS.get('dbs')    || '';
+const URL_CONNID = URL_PARAMS.get('connId') || '';
+function applyDbParam(params){
+  if (URL_DBS)    params.set('dbs', URL_DBS);
+  if (URL_CONNID) params.set('connId', URL_CONNID);
+  return params;
+}
+function dbQs(){
+  const p = new URLSearchParams();
+  applyDbParam(p);
+  const s = p.toString();
+  return s ? '?' + s : '';
+}
+
+// Met à jour le badge "🗄️ DB · Société" en fonction de la base réellement
+// interrogée (retournée par l'API). Sans ça, auth-client.js affiche la base
+// du JWT, ce qui devient faux dès qu'on bascule via ?dbs= ou ?connId=.
+function updateDbBadge(db){
+  if (!db) return;
+  const el = document.getElementById('db-info-badge');
+  if (!el) return;
+  const parts = [];
+  if (db.database) parts.push(`🗄️ ${db.database}`);
+  if (db.societe)  parts.push(db.societe);
+  if (parts.length) {
+    el.textContent = parts.join(' · ');
+    el.title = db.societe ? `Base : ${db.database}\nSociété : ${db.societe}` : `Base : ${db.database || ''}`;
+  }
+}
+let SELECTED_SECTEURS = new Set();
+let SELECTED_MARQUES  = new Set();
+let SELECTED_FAMILLES = new Set();
+let SELECTED_REPS     = new Set();
+let SELECTED_MESURES  = new Set(['ca']); // au moins une mesure, défaut = CA
+let LAST_DATA         = null;
+
+// Persistance des filtres en localStorage : survit à la fermeture de l'onglet
+// et est partagée entre onglets. Indispensable aussi quand la page est embarquée
+// en iframe dans le dashboard (Actualiser recharge l'iframe sans nos filtres).
+function saveState(){
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      annee:    qs('sel-annee')?.value || '',
+      cliactif: qs('sel-cliactif')?.value || '',
+      pr:       qs('sel-pr')?.value || '',
+      view:     qs('sel-view')?.value || '',
+      secteurs: Array.from(SELECTED_SECTEURS),
+      marques:  Array.from(SELECTED_MARQUES),
+      familles: Array.from(SELECTED_FAMILLES),
+      reps:     Array.from(SELECTED_REPS),
+      mesures:  Array.from(SELECTED_MESURES),
+    }));
+  } catch {}
+}
+function loadState(){
+  try {
+    const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (!s) return null;
+    (s.secteurs || []).forEach(x => SELECTED_SECTEURS.add(x));
+    (s.marques  || []).forEach(x => SELECTED_MARQUES.add(x));
+    (s.familles || []).forEach(x => SELECTED_FAMILLES.add(x));
+    (s.reps     || []).forEach(x => SELECTED_REPS.add(x));
+    if (Array.isArray(s.mesures) && s.mesures.length) {
+      SELECTED_MESURES.clear(); s.mesures.forEach(x => SELECTED_MESURES.add(x));
+    }
+    return s;
+  } catch { return null; }
+}
+
+// Catalogue des indicateurs disponibles
+const MESURES = [
+  { id: 'ca',      label: 'CA',         keyN: 'ca_N',      keyN1: 'ca_N1',      format: 'euro' },
+  { id: 'mg_sf',   label: 'Marge SF',   keyN: 'mg_sf_N',   keyN1: 'mg_sf_N1',   format: 'euro' },
+  { id: 'mg_af',   label: 'Marge AF',   keyN: 'mg_af_N',   keyN1: 'mg_af_N1',   format: 'euro' },
+  { id: 'qte',     label: 'Quantité',   keyN: 'qte_N',     keyN1: 'qte_N1',     format: 'qty'  },
+  { id: 'cartons', label: 'Cartons',    keyN: 'cartons_N', keyN1: 'cartons_N1', format: 'qty'  },
+];
+
+function qs(id){ return document.getElementById(id); }
+function fmt(n,dec=0){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec}).format(n);
+}
+function pctClass(p){
+  if(p===null||p===undefined) return '';
+  if(p>=50) return 'good';
+  if(p>=20) return 'avg';
+  return 'bad';
+}
+function evolPct(n,ref){ return ref>0 ? (n-ref)/ref*100 : null; }
+function evolHtml(n,ref){
+  const e = evolPct(n,ref);
+  if(e===null) return '';
+  const cls = e>=0 ? 'pos' : 'neg';
+  const ar  = e>=0 ? '▲' : '▼';
+  return `<span class="evol ${cls}">${ar} ${e>=0?'+':''}${fmt(e,1)} %</span>`;
+}
+
+// ── Multi-select widget générique ─────────────────────────────────────────
+function setupMS(wrapId, items, selectedSet, btnLabelAll, onChange){
+  const wrap = qs(wrapId);
+  const btn  = wrap.querySelector('.ms-btn');
+  const dd   = wrap.querySelector('.ms-dd');
+  function refreshBtn(){
+    const span = btn.querySelector('span');
+    if(selectedSet.size===0){
+      span.textContent = btnLabelAll;
+      btn.classList.remove('active');
+    } else {
+      btn.classList.add('active');
+      if(selectedSet.size===1){
+        const v = Array.from(selectedSet)[0];
+        const it = items.find(x => String(x.id)===String(v));
+        span.textContent = it ? it.label : String(v);
+      } else span.textContent = `${selectedSet.size} sélectionnés`;
+    }
+  }
+  function render(){
+    let h = `<label class="all-opt"><input type="checkbox" id="${wrapId}-all"${selectedSet.size===0?' checked':''}> Tous</label>`;
+    items.forEach(it => {
+      const checked = selectedSet.has(String(it.id)) ? ' checked' : '';
+      h += `<label><input type="checkbox" value="${it.id}"${checked}> ${it.label}</label>`;
+    });
+    dd.innerHTML = h;
+    dd.querySelector(`#${wrapId}-all`).onchange = (e) => {
+      if(e.target.checked){ selectedSet.clear(); render(); refreshBtn(); onChange&&onChange(); }
+      else if(selectedSet.size===0){ e.target.checked = true; } // empêche tout désélectionner
+    };
+    dd.querySelectorAll('input[type=checkbox][value]').forEach(cb => {
+      cb.onchange = () => {
+        if(cb.checked) selectedSet.add(cb.value);
+        else selectedSet.delete(cb.value);
+        const allCb = dd.querySelector(`#${wrapId}-all`);
+        if(allCb) allCb.checked = selectedSet.size===0;
+        refreshBtn();
+        onChange&&onChange();
+      };
+    });
+  }
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    // On ne ferme PAS les autres dropdowns : l'utilisateur peut consulter
+    // plusieurs filtres en parallèle sans perdre l'état affiché.
+    dd.classList.toggle('open');
+    btn.classList.toggle('open');
+  };
+  refreshBtn();
+  render();
+  return { refreshBtn, render };
+}
+function closeAllDropdowns(){
+  document.querySelectorAll('.ms-dd.open').forEach(o => o.classList.remove('open'));
+  document.querySelectorAll('.ms-btn.open').forEach(o => o.classList.remove('open'));
+}
+document.addEventListener('click', (e) => {
+  // Ne pas fermer si le clic est dans un dropdown (sinon la coche se perd visuellement)
+  if (e.target.closest('.ms-dd')) return;
+  // Clic sur un bouton de filtre : ne pas fermer (sinon le clic d'ouverture serait annulé)
+  if (e.target.closest('.ms-btn')) return;
+  closeAllDropdowns();
+});
+
+// Multi-select dédié aux indicateurs : au moins une mesure doit rester sélectionnée.
+function setupMSMesures(){
+  const wrap = qs('ms-mesures');
+  const btn  = wrap.querySelector('.ms-btn');
+  const dd   = wrap.querySelector('.ms-dd');
+  function refreshBtn(){
+    const span = btn.querySelector('span');
+    if(SELECTED_MESURES.size===MESURES.length) span.textContent = 'Tous les indicateurs';
+    else if(SELECTED_MESURES.size===1){
+      const id = Array.from(SELECTED_MESURES)[0];
+      span.textContent = (MESURES.find(m => m.id===id)||{}).label || id;
+    } else span.textContent = `${SELECTED_MESURES.size} indicateurs`;
+  }
+  function render(){
+    let h = '';
+    MESURES.forEach(m => {
+      const checked = SELECTED_MESURES.has(m.id) ? ' checked' : '';
+      h += `<label><input type="checkbox" value="${m.id}"${checked}> ${m.label}</label>`;
+    });
+    dd.innerHTML = h;
+    dd.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      cb.onchange = () => {
+        if(cb.checked) SELECTED_MESURES.add(cb.value);
+        else {
+          if(SELECTED_MESURES.size===1){ cb.checked = true; return; } // garde-fou : 1 min
+          SELECTED_MESURES.delete(cb.value);
+        }
+        refreshBtn();
+        if(LAST_DATA) renderTree(LAST_DATA); // re-render sans re-fetch (données identiques)
+      };
+    });
+  }
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    dd.classList.toggle('open');
+    btn.classList.toggle('open');
+  };
+  refreshBtn();
+  render();
+}
+
+// ── Init filtres ──────────────────────────────────────────────────────────
+async function initFilters(){
+  const dbq = dbQs();
+  const [filters, marques, familles, activites] = await Promise.all([
+    fetch(`${API}/filters${dbq}`).then(r => r.json()),
+    fetch(`${API}/marques${dbq}`).then(r => r.json()),
+    fetch(`${API}/familles${dbq}`).then(r => r.json()),
+    fetch(`${API}/activites${dbq}`).then(r => r.json()),
+  ]);
+
+  // Sélecteur période : YTD calendaire, YTD exercice, années calendaires, exercices complets
+  const sa = qs('sel-annee');
+  const curY = new Date().getFullYear();
+  const today = new Date();
+  const p2 = n => String(n).padStart(2,'0');
+  const todayStr = `${today.getFullYear()}-${p2(today.getMonth()+1)}-${p2(today.getDate())}`;
+  const curExe = (filters.exercices||[]).find(e => e.date_debut <= todayStr && todayStr <= e.date_fin);
+  let anHtml = '';
+  if(filters.exercices?.length){
+    anHtml += '<optgroup label="YTD exercice">';
+    filters.exercices.forEach(e => {
+      const isCur = curExe && e.date_debut === curExe.date_debut;
+      anHtml += `<option value="ytd_exe:${e.date_debut}:${e.date_fin}"${isCur?' selected':''}>YTD ${e.libelle || e.annee_debut}${isCur?' (en cours)':''}</option>`;
+    });
+    anHtml += '</optgroup>';
+  }
+  anHtml += `<option value="ytd"${curExe?'':' selected'}>YTD calendaire — ${curY}</option>`;
+  anHtml += '<optgroup label="Années calendaires">';
+  (filters.annees||[]).forEach(a => { anHtml += `<option value="${a}">${a}</option>`; });
+  anHtml += '</optgroup>';
+  if(filters.exercices?.length){
+    anHtml += '<optgroup label="Exercices fiscaux (complets)">';
+    filters.exercices.forEach(e => {
+      anHtml += `<option value="exe:${e.date_debut}:${e.date_fin}">${e.libelle || e.annee_debut}</option>`;
+    });
+    anHtml += '</optgroup>';
+  }
+  sa.innerHTML = anHtml;
+  sa.onchange = load;
+
+  // onChange = load() → recharge dès qu'on coche/décoche pour feedback immédiat
+  setupMS('ms-secteurs',
+    (activites||[]).map(s => ({ id: s, label: s })),
+    SELECTED_SECTEURS, 'Tous les secteurs', load);
+  setupMS('ms-marques',
+    marques.map(m => ({ id: m, label: m })),
+    SELECTED_MARQUES, 'Toutes les marques', load);
+  setupMS('ms-familles',
+    (familles||[]).map(f => ({ id: f, label: f })),
+    SELECTED_FAMILLES, 'Toutes les familles', load);
+  setupMS('ms-reps',
+    (filters.commerciaux||[]).map(c => ({ id: c.TIRID, label: c.nom })),
+    SELECTED_REPS, 'Tous les commerciaux', load);
+  // Multi-select indicateurs : au moins 1 obligatoire. Le clic « Tous » sélectionne TOUS les indicateurs
+  // (au lieu de vider) pour respecter cette contrainte. Re-render le tableau, pas besoin de re-fetch.
+  setupMSMesures();
+
+  qs('sel-pr').onchange      = load;
+  qs('sel-cliactif').onchange = load;
+  // Changement de vue = re-render sans re-fetch (les 2 trees sont déjà dans LAST_DATA)
+  qs('sel-view').onchange    = () => { if(LAST_DATA) renderTree(LAST_DATA); };
+
+  // Params URL (mode embed initial — dashboard ouvre l'iframe avec annee=...)
+  const p = new URLSearchParams(location.search);
+  if(p.get('annee'))    sa.value = p.get('annee');
+  if(p.get('marques'))  p.get('marques').split(',').forEach(m => SELECTED_MARQUES.add(m));
+  if(p.get('familles')) p.get('familles').split(',').forEach(f => SELECTED_FAMILLES.add(f));
+  if(p.get('secteurs')) p.get('secteurs').split(',').forEach(s => SELECTED_SECTEURS.add(s));
+  if(p.get('repid'))    p.get('repid').split(',').forEach(r => SELECTED_REPS.add(r));
+  if(p.get('cliactif')) qs('sel-cliactif').value = p.get('cliactif');
+  if(p.get('pr'))       qs('sel-pr').value       = p.get('pr');
+  if(p.get('view'))     qs('sel-view').value     = p.get('view');
+
+  // Restaure depuis localStorage (priorité sur les params URL si les params URL
+  // sont vides). Indispensable pour survivre au rechargement d'iframe par le dashboard.
+  const saved = loadState();
+  if (saved) {
+    if (saved.annee    && !p.get('annee'))    sa.value = saved.annee;
+    if (saved.cliactif && !p.get('cliactif')) qs('sel-cliactif').value = saved.cliactif;
+    if (saved.pr       && !p.get('pr'))       qs('sel-pr').value = saved.pr;
+    if (saved.view     && !p.get('view'))     qs('sel-view').value = saved.view;
+    // SELECTED_* sont déjà restaurés dans loadState()
+    // Refresh tous les ms-btn pour refléter l'état restauré
+    document.querySelectorAll('.ms-btn').forEach(b => {
+      const wrap = b.closest('.ms-wrap');
+      const dd = wrap?.querySelector('.ms-dd');
+      // Re-coche les checkboxes correspondantes dans le dropdown
+      if (dd) {
+        const checks = dd.querySelectorAll('input[type=checkbox][value]');
+        let anyChecked = false;
+        checks.forEach(cb => {
+          let set = null;
+          if (wrap.id === 'ms-secteurs') set = SELECTED_SECTEURS;
+          else if (wrap.id === 'ms-marques')  set = SELECTED_MARQUES;
+          else if (wrap.id === 'ms-familles') set = SELECTED_FAMILLES;
+          else if (wrap.id === 'ms-reps')     set = SELECTED_REPS;
+          else if (wrap.id === 'ms-mesures')  set = SELECTED_MESURES;
+          if (set && set.has(cb.value)) { cb.checked = true; anyChecked = true; }
+        });
+        const allCb = dd.querySelector('input.all-opt, [id$="-all"]');
+        if (allCb) allCb.checked = !anyChecked;
+        // Mise à jour visuelle du bouton
+        const span = b.querySelector('span');
+        let set = null;
+        let labelAll = '';
+        if (wrap.id === 'ms-secteurs') { set = SELECTED_SECTEURS; labelAll = 'Tous les secteurs'; }
+        else if (wrap.id === 'ms-marques') { set = SELECTED_MARQUES; labelAll = 'Toutes les marques'; }
+        else if (wrap.id === 'ms-familles'){ set = SELECTED_FAMILLES; labelAll = 'Toutes les familles'; }
+        else if (wrap.id === 'ms-reps')    { set = SELECTED_REPS;    labelAll = 'Tous les commerciaux'; }
+        else if (wrap.id === 'ms-mesures') { set = SELECTED_MESURES; labelAll = 'Indicateurs'; }
+        if (set && span) {
+          if (set.size === 0) { span.textContent = labelAll; b.classList.remove('active'); }
+          else { b.classList.add('active'); span.textContent = set.size === 1 ? Array.from(set)[0] : `${set.size} sélectionnés`; }
+        }
+      }
+    });
+  }
+}
+
+// ── Cellule nb clients + % de pénétration ────────────────────────────────
+function cellNb(nb, totalClients){
+  const p = totalClients>0 ? (nb/totalClients*100) : null;
+  const pStr = p!==null
+    ? `<span class="val-pct ${pctClass(p)}">${fmt(p,1)} %</span>` : '';
+  return `<td><span class="val-main">${fmt(nb)}</span>${pStr}</td>`;
+}
+// Cellule mesure (CA, marge, qté, cartons) avec format adapté
+function cellMeas(val, format){
+  const suffix = format==='euro' ? ' €' : '';
+  return `<td><span class="val-main">${fmt(val)}${suffix}</span></td>`;
+}
+function cellMeasEvol(valN, valN1){
+  return `<td>${evolHtml(valN, valN1)}</td>`;
+}
+// Sélection effective triée selon l'ordre de MESURES (UI stable)
+function activeMesures(){
+  return MESURES.filter(m => SELECTED_MESURES.has(m.id));
+}
+
+// ── Rendu hiérarchique récursif (générique pour les 2 vues) ─────────────
+function renderTree(data){
+  const view = qs('sel-view').value; // 'secteur' | 'marque'
+  const tree = view === 'marque' ? (data.treeByMarque || []) : (data.treeBySecteur || []);
+  const annee = data.annee, anneeN1 = data.anneeN1;
+  const meas = activeMesures();
+  const measHeaderHtml = meas.map(m => `
+    <th class="col-n">${m.label} ${annee}</th>
+    <th>${m.label} ${anneeN1}</th>
+    <th class="col-evol">Évol ${m.label}</th>`).join('');
+  const measCellsHtml = (node) => meas.map(m => {
+    const vN  = node[m.keyN]  || 0;
+    const vN1 = node[m.keyN1] || 0;
+    return cellMeas(vN, m.format) + cellMeas(vN1, m.format) + cellMeasEvol(vN, vN1);
+  }).join('');
+  const totalCols = 4 + meas.length * 3;
+
+  // Libellé d'en-tête selon la vue
+  const viewTitle = view === 'marque'
+    ? 'Marque → Secteur → Commercial → Article'
+    : 'Secteur → Marque → Commercial → Article';
+
+  // Plage de dates explicite (pour ne pas se tromper sur le périmètre)
+  const per = data.periode || {};
+  const periodInfo = per.dN
+    ? `N : ${per.dN} → ${per.fN} · N-1 : ${per.dN1} → ${per.fN1}`
+    : '';
+  let html = `
+    <div class="section-header">
+      <span class="section-title">📊 Hiérarchie ${viewTitle}</span>
+      <span class="section-sub">${tree.length} ${view==='marque'?'marque':'secteur'}(s) · ${meas.length} indicateur(s)${periodInfo?' · '+periodInfo:''}</span>
+    </div>
+    <div style="overflow-x:auto">
+    <table class="tree-table">
+      <thead>
+        <tr>
+          <th>Niveau</th>
+          <th>Tot. clients</th>
+          <th class="col-n">Nb clients ${annee}</th>
+          <th>Nb clients ${anneeN1}</th>
+          ${measHeaderHtml}
+        </tr>
+      </thead>
+      <tbody>`;
+
+  if(tree.length===0){
+    html += `<tr><td colspan="${totalCols}" class="muted" style="text-align:center;padding:24px">
+      Aucune vente trouvée sur la période avec les filtres actuels.
+    </td></tr>`;
+  }
+
+  // Rendu récursif. `denom` = dénominateur pour le % de présence (peut changer
+  // quand on traverse un nœud de type 'secteur').
+  // `idPath` est utilisé pour les data-row/data-parent (toggles).
+  function renderNode(node, level, denom, idPath){
+    let h = '';
+    let nodeDenom = denom;
+    let totCellHtml = '<td class="muted">—</td>';
+    if (node.type === 'secteur') {
+      nodeDenom = node.totalClients || 0;
+      totCellHtml = `<td><span class="val-main">${fmt(nodeDenom)}</span></td>`;
+    } else if (node.type === 'marque') {
+      // Niveau marque : on affiche le dénominateur hérité (= total clients
+      // du secteur parent en vue secteur-first, ou totalClientsGlobal en
+      // vue marque-first). Ce nombre respecte les filtres commercial+cliactif
+      // qui sont appliqués à la source dans Q1 du backend.
+      totCellHtml = `<td><span class="val-main">${fmt(denom)}</span></td>`;
+    } else if (node.type === 'rep') {
+      // Niveau commercial : portefeuille global du commercial (tous secteurs
+      // /marques confondus) calculé en backend. Devient le dénominateur des
+      // % à ce niveau et propagé aux articles enfants.
+      nodeDenom = node.totalClients || 0;
+      totCellHtml = `<td><span class="val-main">${fmt(nodeDenom)}</span></td>`;
+    }
+    const hasChildren = node.children && node.children.length > 0;
+    // Toujours collapsed par défaut : toggler '▸', enfants display:none.
+    const tog = hasChildren ? `<span class="toggler" data-toggle="${idPath}">▸</span> ` : '';
+    let label;
+    if (node.type === 'art') label = `${node.code || ''} — ${node.designation || ''}`;
+    else label = node.label;
+    const hiddenAttr = level > 1 ? ' style="display:none"' : '';
+    h += `<tr class="lvl-${Math.min(level,4)}" data-row="${idPath}"${level>1?` data-parent="${idPath.replace(/-[^-]*$/,'')}"`:''}${hiddenAttr}>
+      <td class="lbl">${tog}${label}</td>
+      ${totCellHtml}
+      ${cellNb(node.nbN, nodeDenom)}
+      ${cellNb(node.nbN1, nodeDenom)}
+      ${measCellsHtml(node)}
+    </tr>`;
+    if (hasChildren) {
+      node.children.forEach((child, ci) => {
+        h += renderNode(child, level+1, nodeDenom, `${idPath}-${ci}`);
+      });
+    }
+    return h;
+  }
+
+  // Niveau racine : si vue marque-first, denom = totalClientsGlobal ; sinon
+  // c'est ignoré et chaque secteur définit son propre denom à son entrée.
+  const rootDenom = view === 'marque' ? (data.totalClientsGlobal || 0) : 0;
+  tree.forEach((root, ri) => {
+    html += renderNode(root, 1, rootDenom, `n${ri}`);
+  });
+
+  html += `</tbody></table></div>`;
+  qs('tree-section').innerHTML = html;
+
+  // Attache les toggles repliage/dépliage
+  qs('tree-section').querySelectorAll('.toggler').forEach(t => {
+    t.onclick = (e) => {
+      e.stopPropagation();
+      const parentId = t.dataset.toggle;
+      const isOpen = t.textContent === '▾';
+      t.textContent = isOpen ? '▸' : '▾';
+      // cache/montre récursivement tous les enfants
+      const hideAll = (pid, doHide) => {
+        document.querySelectorAll(`[data-parent="${pid}"]`).forEach(row => {
+          row.style.display = doHide ? 'none' : '';
+          if(doHide) {
+            // si on cache un parent, repli ses togglers visuellement
+            const innerToggler = row.querySelector('.toggler');
+            if(innerToggler) innerToggler.textContent = '▸';
+            hideAll(row.dataset.row, true);
+          }
+        });
+      };
+      hideAll(parentId, isOpen);
+    };
+  });
+}
+
+// ── Rendu KPIs synthèse ──────────────────────────────────────────────────
+function renderKpis(data){
+  const totN  = data.globalAcheteursN;
+  const totN1 = data.globalAcheteursN1;
+  const totC  = data.totalClientsGlobal;
+  const pN  = totC>0 ? (totN/totC*100)  : null;
+  const pN1 = totC>0 ? (totN1/totC*100) : null;
+  const g = data.global || {};
+  // Le KPI « Évolution » suit le 1er indicateur sélectionné (CA par défaut)
+  const m0 = activeMesures()[0] || MESURES[0];
+  const vN  = g[m0.keyN]  || 0;
+  const vN1 = g[m0.keyN1] || 0;
+  const suf = m0.format==='euro' ? ' €' : '';
+  const e = evolPct(vN, vN1);
+  qs('kpis').innerHTML = `
+    <div class="kpi-card">
+      <div class="kpi-label">Total clients (portefeuille)</div>
+      <div class="kpi-value">${fmt(totC)}</div>
+      <div class="kpi-sub">tous secteurs confondus</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Acheteurs ${data.annee}</div>
+      <div class="kpi-value">${fmt(totN)} <span class="val-pct ${pctClass(pN)}" style="font-size:.85rem">${pN!==null?fmt(pN,1)+' %':''}</span></div>
+      <div class="kpi-sub">${m0.label} ${fmt(vN)}${suf}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Acheteurs ${data.anneeN1}</div>
+      <div class="kpi-value">${fmt(totN1)} <span class="val-pct ${pctClass(pN1)}" style="font-size:.85rem">${pN1!==null?fmt(pN1,1)+' %':''}</span></div>
+      <div class="kpi-sub">${m0.label} ${fmt(vN1)}${suf}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Évolution ${m0.label}</div>
+      <div class="kpi-value">${e===null?'—':((e>=0?'+':'')+fmt(e,1)+' %')}</div>
+      <div class="kpi-sub ${e===null?'':(e>=0?'pos':'neg')}">N vs N-1</div>
+    </div>`;
+}
+
+// ── Graphique comparatif présent / non présent par activité ──────────────
+// Bar chart groupé : pour chaque secteur (activité), 2 barres — clients qui
+// achètent la/les marque(s) sélectionnée(s) vs clients du portefeuille qui
+// n'en achètent pas. Présents par secteur = totalClientsBySecteur − absences.
+let presenceChart = null;
+function renderPresenceChart(data){
+  const el = qs('chart-presence-section');
+  if (presenceChart) { presenceChart.destroy(); presenceChart = null; }
+  if (!data.marquesFiltre || data.marquesFiltre.length === 0) { el.innerHTML = ''; return; }
+
+  // Map secteur → nb absents (sectors sans absence n'apparaissent pas dans data.absences)
+  const absentsBySecteur = {};
+  (data.absences || []).forEach(s => { absentsBySecteur[s.secteur] = s.clients.length; });
+  // Univers complet des secteurs du portefeuille
+  const rows = Object.keys(data.totalClientsBySecteur || {}).map(sec => {
+    const tot = data.totalClientsBySecteur[sec] || 0;
+    const abs = absentsBySecteur[sec] || 0;
+    return { secteur: sec, total: tot, absents: abs, presents: Math.max(0, tot - abs) };
+  }).filter(r => r.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 20);  // top 20 secteurs par taille pour garder le graphe lisible
+  if (!rows.length) { el.innerHTML = ''; return; }
+
+  const marqueLbl = data.marquesFiltre.join(', ');
+  el.innerHTML = `
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">📊 Présence par activité — ${marqueLbl}</span>
+        <span class="section-sub">Comparatif clients présents vs non présents · ${rows.length} secteur(s) · période ${data.anneeN1} + ${data.annee}</span>
+      </div>
+      <div style="padding:14px 16px;background:var(--surface)">
+        <div style="position:relative;height:${Math.max(220, rows.length * 26)}px">
+          <canvas id="chart-presence-canvas"></canvas>
+        </div>
+      </div>
+    </div>`;
+  const ctx = qs('chart-presence-canvas').getContext('2d');
+  presenceChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.secteur),
+      datasets: [
+        { label: 'Présents',     data: rows.map(r => r.presents),
+          backgroundColor: 'rgba(76,175,80,0.75)',  borderColor: '#4CAF50', borderWidth: 1 },
+        { label: 'Non présents', data: rows.map(r => r.absents),
+          backgroundColor: 'rgba(244,67,54,0.75)',  borderColor: '#F44336', borderWidth: 1 },
+      ]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { color: '#e2e8f0', font: { size: 11 }, padding: 10, boxWidth: 14 } },
+        tooltip: {
+          callbacks: {
+            label: c => {
+              const r = rows[c.dataIndex];
+              const pct = r.total > 0 ? (c.raw / r.total * 100) : 0;
+              return ` ${c.dataset.label} : ${fmt(c.raw)} / ${fmt(r.total)} (${fmt(pct,1)}%)`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// ── Rendu absences ───────────────────────────────────────────────────────
+function renderAbsences(data){
+  const el = qs('absences-section');
+  if(!data.marquesFiltre || data.marquesFiltre.length===0){
+    el.innerHTML = `
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">🚫 Clients sans présence</span>
+          <span class="section-sub">Sélectionner au moins une marque pour activer l'analyse</span>
+        </div>
+        <div class="absences-empty">Choisis une ou plusieurs marques dans le filtre pour identifier les clients qui n'achètent pas la marque.</div>
+      </div>`;
+    return;
+  }
+  const marqueLbl = data.marquesFiltre.join(', ');
+  const totAbs = data.absences.reduce((s, a) => s + a.clients.length, 0);
+  const totGlob = data.totalClientsGlobal || 0;
+  const pctAbs = totGlob > 0 ? (totAbs / totGlob * 100) : 0;
+  if(data.absences.length===0){
+    el.innerHTML = `
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">🚫 Clients sans présence</span>
+          <span class="section-sub">Marque(s) : ${marqueLbl} · période ${data.anneeN1} + ${data.annee}</span>
+        </div>
+        <div class="absences-empty">✅ Aucun client sans présence : tous les clients du portefeuille ont acheté la marque sur la période.</div>
+      </div>`;
+    return;
+  }
+  let h = `
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">🚫 Clients sans présence (${fmt(totAbs)} / ${fmt(totGlob)} · ${fmt(pctAbs,1)}%)</span>
+        <span class="section-sub">Marque(s) : ${marqueLbl} · période ${data.anneeN1} + ${data.annee}</span>
+      </div>
+      <div class="absences-card">`;
+  data.absences.forEach((sec, si) => {
+    const sid = `abs-${si}`;
+    const totSec = data.totalClientsBySecteur[sec.secteur] || 0;
+    const pctSec = totSec > 0 ? (sec.clients.length / totSec * 100) : 0;
+    h += `
+      <div class="absences-sector">
+        <div class="absences-head" data-toggle="${sid}">
+          <span class="toggler">▸</span>
+          <span class="name">${sec.secteur}</span>
+          <span class="count">${sec.clients.length} / ${totSec} sans présence (${fmt(pctSec,1)}%)</span>
+        </div>
+        <ul class="absences-list" id="${sid}">
+          ${sec.clients.map(c => `<li>${c.nom}${c.code?` <span class="cli-cmd">[${c.code}]</span>`:''}${c.commercial?` <span class="cli-cmd">— ${c.commercial}</span>`:''}</li>`).join('')}
+        </ul>
+      </div>`;
+  });
+  h += `</div></div>`;
+  el.innerHTML = h;
+  el.querySelectorAll('.absences-head').forEach(head => {
+    head.onclick = () => {
+      const id = head.dataset.toggle;
+      const list = document.getElementById(id);
+      const tog = head.querySelector('.toggler');
+      const isOpen = list.classList.toggle('open');
+      tog.textContent = isOpen ? '▾' : '▸';
+    };
+  });
+}
+
+// ── Rendu gaps article (clients de la marque sans présence sur l'article) ──
+// Hiérarchie : Marque → Secteur d'activité → Article → Clients absents.
+// Le niveau secteur est obtenu en pivotant les clients absents de chaque
+// article par leur TIRACTIVITE. Un article peut apparaître sous plusieurs
+// secteurs (clients absents répartis sur plusieurs activités).
+function renderGaps(data){
+  const el = qs('gaps-section');
+  if(!data.absencesArticles || data.absencesArticles.length === 0){
+    el.innerHTML = '';
+    return;
+  }
+  const totGaps = data.absencesArticles.reduce((s, m) => s + m.articles.reduce((ss, a) => ss + a.nbAbsents, 0), 0);
+  const nbArticlesByMarque = {};
+  (data.gapsByClient || []).forEach(m => { nbArticlesByMarque[m.marque] = m.nbArticlesMarque; });
+  const totOpps = data.absencesArticles.reduce((s, m) => {
+    const nbArt = nbArticlesByMarque[m.marque] || m.articles.length;
+    return s + (m.nbBuyersMarque * nbArt);
+  }, 0);
+  const pctGaps = totOpps > 0 ? (totGaps / totOpps * 100) : 0;
+  let h = `
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">🔍 Présence partielle — gaps article (${fmt(totGaps)} / ${fmt(totOpps)} · ${fmt(pctGaps,1)}%)</span>
+        <span class="section-sub">Clients qui achètent la marque mais pas l'article — opportunités cross-sell intra-marque</span>
+      </div>
+      <div class="absences-card">`;
+  data.absencesArticles.forEach((mar, mi) => {
+    const mid = `gap-m${mi}`;
+    const nbArtTotal = nbArticlesByMarque[mar.marque] || mar.articles.length;
+    const oppsMarque = mar.nbBuyersMarque * nbArtTotal;
+    const gapsMarque = mar.articles.reduce((s, a) => s + a.nbAbsents, 0);
+    const pctMarque = oppsMarque > 0 ? (gapsMarque / oppsMarque * 100) : 0;
+
+    // Pivot : secteur → Map<art_id, {art, clients filtrés sur le secteur}>
+    const bySecMap = new Map();
+    mar.articles.forEach(art => {
+      art.clients.forEach(c => {
+        const sec = c.secteur || 'Non défini';
+        if (!bySecMap.has(sec)) bySecMap.set(sec, new Map());
+        const aMap = bySecMap.get(sec);
+        if (!aMap.has(art.art_id)) {
+          aMap.set(art.art_id, {
+            art_id: art.art_id, code: art.code, designation: art.designation,
+            nbBuyersMarque: art.nbBuyersMarque, clients: [],
+          });
+        }
+        aMap.get(art.art_id).clients.push(c);
+      });
+    });
+    const secteurs = Array.from(bySecMap.entries()).map(([sec, aMap]) => {
+      const articles = Array.from(aMap.values()).map(a => ({ ...a, nbAbsents: a.clients.length }));
+      articles.sort((a, b) => b.nbAbsents - a.nbAbsents);
+      const distinct = new Set();
+      articles.forEach(a => a.clients.forEach(c => distinct.add(c.tir_id)));
+      const nbGaps = articles.reduce((s, a) => s + a.nbAbsents, 0);
+      return { secteur: sec, nbDistinct: distinct.size, nbGaps, articles };
+    }).sort((a, b) => b.nbGaps - a.nbGaps || a.secteur.localeCompare(b.secteur, 'fr'));
+
+    h += `
+      <div class="absences-sector">
+        <div class="absences-head" data-toggle="${mid}">
+          <span class="toggler">▸</span>
+          <span class="name">${mar.marque}</span>
+          <span class="count">${mar.articles.length} article(s) avec gap · ${mar.nbBuyersMarque} clients · ${fmt(pctMarque,1)}% des opportunités non couvertes</span>
+        </div>
+        <ul class="absences-list" id="${mid}" style="list-style:none;margin-left:0;padding-left:0">`;
+    secteurs.forEach((sec, si) => {
+      const sid = `${mid}-s${si}`;
+      h += `
+          <li style="padding:0">
+            <div data-toggle="${sid}" style="display:flex;align-items:center;gap:6px;padding:6px 16px 6px 28px;cursor:pointer;background:rgba(255,152,0,0.06);border-top:1px solid var(--border)">
+              <span class="toggler">▸</span>
+              <span style="font-weight:600;color:#cbd5e1">${sec.secteur}</span>
+              <span class="cli-cmd" style="margin-left:auto">${sec.nbDistinct} client(s) distinct(s) · ${sec.articles.length} article(s) · ${sec.nbGaps} gap(s)</span>
+            </div>
+            <ul id="${sid}" style="display:none;margin:0;padding:0;list-style:none">`;
+      sec.articles.forEach((art, ai) => {
+        const aid = `${sid}-a${ai}`;
+        const pctArt = art.nbBuyersMarque > 0 ? (art.nbAbsents / art.nbBuyersMarque * 100) : 0;
+        h += `
+              <li style="padding:6px 16px 6px 44px;border-top:1px solid var(--border)">
+                <div data-toggle="${aid}" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <span class="toggler">▸</span>
+                  <span style="font-weight:600">${art.code} — ${art.designation}</span>
+                  <span class="cli-cmd" style="margin-left:auto">${art.nbAbsents} absent(s) sur ce secteur · ${art.nbAbsents}/${art.nbBuyersMarque} sur l'ensemble (${fmt(pctArt,1)}%)</span>
+                </div>
+                <ul id="${aid}" style="display:none;margin:4px 0 4px 22px;padding:0;list-style:disc">
+                  ${art.clients.map(c => `<li style="padding:1px 0">${c.nom}${c.code?` <span class="cli-cmd">[${c.code}]</span>`:''}${c.commercial?` <span class="cli-cmd">— ${c.commercial}</span>`:''}</li>`).join('')}
+                </ul>
+              </li>`;
+      });
+      h += `</ul></li>`;
+    });
+    h += `</ul></div>`;
+  });
+  h += `</div></div>`;
+  el.innerHTML = h;
+  // Toggle unifié sur les 3 niveaux (marque/secteur/article). Chaque `[data-toggle]`
+  // contrôle l'élément dont l'id correspond à `data-toggle`. stopPropagation pour
+  // que le clic sur un niveau interne ne déclenche pas les niveaux englobants.
+  el.querySelectorAll('[data-toggle]').forEach(head => {
+    head.onclick = (e) => {
+      e.stopPropagation();
+      const id = head.dataset.toggle;
+      const list = document.getElementById(id);
+      const tog = head.querySelector('.toggler');
+      const cur = list.style.display;
+      if (cur === 'none' || cur === '') {
+        list.style.display = 'block'; list.classList.add('open'); tog.textContent = '▾';
+      } else {
+        list.style.display = 'none';  list.classList.remove('open'); tog.textContent = '▸';
+      }
+    };
+  });
+}
+
+// ── Rendu gaps client (par client, articles non achetés de la marque) ───
+// Hiérarchie : Marque → Secteur d'activité → Client → Articles manquants.
+// Chaque client appartient à un seul secteur (TIRACTIVITE), pivot direct.
+function renderGapsByClient(data){
+  const el = qs('gaps-client-section');
+  if(!data.gapsByClient || data.gapsByClient.length === 0){
+    el.innerHTML = '';
+    return;
+  }
+  const totClients = data.gapsByClient.reduce((s, m) => s + m.clients.length, 0);
+  const totBuyers = data.gapsByClient.reduce((s, m) => s + m.nbBuyersMarque, 0);
+  const pctGlobal = totBuyers > 0 ? (totClients / totBuyers * 100) : 0;
+  let h = `
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">🎯 Gaps client — articles non achetés (${fmt(totClients)} / ${fmt(totBuyers)} · ${fmt(pctGlobal,1)}%)</span>
+        <span class="section-sub">Par client présent dans la marque : liste des articles qu'il n'achète pas</span>
+      </div>
+      <div class="absences-card">`;
+  data.gapsByClient.forEach((mar, mi) => {
+    const mid = `gapcli-m${mi}`;
+    const pctMar = mar.nbBuyersMarque > 0 ? (mar.clients.length / mar.nbBuyersMarque * 100) : 0;
+
+    // Pivot par secteur d'activité (un client = un secteur)
+    const bySec = {};
+    mar.clients.forEach(c => {
+      const sec = c.secteur || 'Non défini';
+      if (!bySec[sec]) bySec[sec] = [];
+      bySec[sec].push(c);
+    });
+    const secteurs = Object.entries(bySec).map(([sec, clients]) => ({
+      secteur: sec, clients,
+    })).sort((a, b) => b.clients.length - a.clients.length
+                     || a.secteur.localeCompare(b.secteur, 'fr'));
+
+    h += `
+      <div class="absences-sector">
+        <div class="absences-head" data-toggle="${mid}">
+          <span class="toggler">▸</span>
+          <span class="name">${mar.marque}</span>
+          <span class="count">${mar.clients.length} / ${mar.nbBuyersMarque} clients avec gap (${fmt(pctMar,1)}%) · ${mar.nbArticlesMarque} articles</span>
+        </div>
+        <ul class="absences-list" id="${mid}" style="list-style:none;margin-left:0;padding-left:0">`;
+    secteurs.forEach((sec, si) => {
+      const sid = `${mid}-s${si}`;
+      const nbMissingTot = sec.clients.reduce((s, c) => s + c.nbMissing, 0);
+      h += `
+          <li style="padding:0">
+            <div data-toggle="${sid}" style="display:flex;align-items:center;gap:6px;padding:6px 16px 6px 28px;cursor:pointer;background:rgba(255,152,0,0.06);border-top:1px solid var(--border)">
+              <span class="toggler">▸</span>
+              <span style="font-weight:600;color:#cbd5e1">${sec.secteur}</span>
+              <span class="cli-cmd" style="margin-left:auto">${sec.clients.length} client(s) avec gap · ${nbMissingTot} article(s) manquant(s) cumulés</span>
+            </div>
+            <ul id="${sid}" style="display:none;margin:0;padding:0;list-style:none">`;
+      sec.clients.forEach((c, ci) => {
+        const cid = `${sid}-c${ci}`;
+        const pctCli = c.nbArticlesMarque > 0 ? (c.nbMissing / c.nbArticlesMarque * 100) : 0;
+        h += `
+              <li style="padding:6px 16px 6px 44px;border-top:1px solid var(--border)">
+                <div data-toggle="${cid}" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                  <span class="toggler">▸</span>
+                  <span style="font-weight:600">${c.nom}</span>
+                  ${c.code?`<span class="cli-cmd">[${c.code}]</span>`:''}
+                  ${c.commercial?`<span class="cli-cmd">— ${c.commercial}</span>`:''}
+                  <span class="cli-cmd" style="margin-left:auto">${c.nbMissing}/${c.nbArticlesMarque} manquants (${fmt(pctCli,1)}%)</span>
+                </div>
+                <ul id="${cid}" style="display:none;margin:4px 0 4px 22px;padding:0;list-style:disc">
+                  ${c.missingArticles.map(a => `<li style="padding:1px 0">${a.code} — ${a.designation}</li>`).join('')}
+                </ul>
+              </li>`;
+      });
+      h += `</ul></li>`;
+    });
+    h += `</ul></div>`;
+  });
+  h += `</div></div>`;
+  el.innerHTML = h;
+  // Toggle unifié sur les 3 niveaux (marque/secteur/client). Voir renderGaps()
+  // pour le même mécanisme.
+  el.querySelectorAll('[data-toggle]').forEach(head => {
+    head.onclick = (e) => {
+      e.stopPropagation();
+      const id = head.dataset.toggle;
+      const list = document.getElementById(id);
+      const tog = head.querySelector('.toggler');
+      const cur = list.style.display;
+      if (cur === 'none' || cur === '') {
+        list.style.display = 'block'; list.classList.add('open'); tog.textContent = '▾';
+      } else {
+        list.style.display = 'none';  list.classList.remove('open'); tog.textContent = '▸';
+      }
+    };
+  });
+}
+
+// ── Skeleton ─────────────────────────────────────────────────────────────
+function skeleton(){
+  qs('kpis').innerHTML = [1,2,3,4].map(() => `
+    <div class="kpi-card">
+      <div class="kpi-label"><span class="skeleton" style="width:80px;height:10px"></span></div>
+      <div class="kpi-value"><span class="skeleton" style="width:60px;height:24px"></span></div>
+    </div>`).join('');
+  qs('tree-section').innerHTML = `
+    <div class="section-header"><span class="section-title">Chargement…</span></div>
+    <div style="padding:20px"><span class="skeleton" style="width:100%;height:200px;display:block"></span></div>`;
+  qs('absences-section').innerHTML = '';
+}
+
+// ── Chargement ───────────────────────────────────────────────────────────
+// `firstLoad` n'est vrai qu'au premier appel pour afficher le skeleton —
+// les rechargements via filtres préservent l'affichage pour éviter le flash
+// qui donne l'impression que les filtres sont remis à zéro.
+let _firstLoadDone = false;
+async function load(){
+  const btn = qs('refresh-btn');
+  const dot = qs('status-dot');
+  const banner = qs('error-banner');
+  btn.disabled = true; btn.textContent = '…';
+  if (!_firstLoadDone) skeleton();
+  else dot.className = '';
+
+  const params = new URLSearchParams();
+  const annee = qs('sel-annee').value;
+  if(annee) params.set('annee', annee);
+  if(SELECTED_SECTEURS.size) params.set('secteurs', Array.from(SELECTED_SECTEURS).join(','));
+  if(SELECTED_MARQUES.size)  params.set('marques',  Array.from(SELECTED_MARQUES).join(','));
+  if(SELECTED_FAMILLES.size) params.set('familles', Array.from(SELECTED_FAMILLES).join(','));
+  if(SELECTED_REPS.size)     params.set('repid',    Array.from(SELECTED_REPS).join(','));
+  const pr = qs('sel-pr').value;
+  if(pr) params.set('pr', pr);
+  const cliactif = qs('sel-cliactif').value;
+  if(cliactif) params.set('cliactif', cliactif);
+  applyDbParam(params);
+
+  saveState();  // Persiste pour survivre au rechargement d'iframe par le dashboard
+  try {
+    const data = await fetch(`${API}/rapport-secteur-marque?${params}`).then(r => r.json());
+    if(data.error) throw new Error(data.error);
+    LAST_DATA = data;
+    updateDbBadge(data.db);
+    renderKpis(data);
+    renderTree(data);
+    renderPresenceChart(data);
+    renderAbsences(data);
+    renderGaps(data);
+    renderGapsByClient(data);
+    _firstLoadDone = true;
+    dot.className = 'ok';
+    banner.style.display = 'none';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch(err){
+    dot.className = 'err';
+    banner.style.display = 'block';
+    banner.textContent = 'Erreur : ' + err.message;
+    qs('tree-section').innerHTML = '';
+    qs('chart-presence-section').innerHTML = '';
+    qs('absences-section').innerHTML = '';
+    qs('gaps-section').innerHTML = '';
+    qs('gaps-client-section').innerHTML = '';
+    qs('kpis').innerHTML = '';
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+// ── Exports Excel / PDF — réutilisent les mêmes filtres que load() ──────
+function buildExportParams(){
+  const params = new URLSearchParams();
+  const annee = qs('sel-annee').value; if(annee) params.set('annee', annee);
+  if(SELECTED_SECTEURS.size) params.set('secteurs', Array.from(SELECTED_SECTEURS).join(','));
+  if(SELECTED_MARQUES.size)  params.set('marques',  Array.from(SELECTED_MARQUES).join(','));
+  if(SELECTED_FAMILLES.size) params.set('familles', Array.from(SELECTED_FAMILLES).join(','));
+  if(SELECTED_REPS.size)     params.set('repid',    Array.from(SELECTED_REPS).join(','));
+  const pr = qs('sel-pr').value;             if(pr) params.set('pr', pr);
+  const cliactif = qs('sel-cliactif').value; if(cliactif) params.set('cliactif', cliactif);
+  applyDbParam(params);
+  return params;
+}
+async function exportExcel(){
+  const btn = qs('excel-btn');
+  const prevTxt = btn.textContent; btn.disabled = true; btn.textContent = '📊 …';
+  try {
+    const res = await fetch(`${API}/rapport-secteur-marque/excel?${buildExportParams()}`);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `penetration-secteur-marque-${new Date().toISOString().slice(0,10)}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch(err){
+    alert('Erreur export Excel : ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = prevTxt;
+  }
+}
+async function exportPDF(){
+  const btn = qs('pdf-btn');
+  const prevTxt = btn.textContent; btn.disabled = true; btn.textContent = '🖨️ …';
+  try {
+    // window.open() ne passe pas par l'intercepteur fetch — on injecte le token
+    // dans la query (l'authMiddleware accepte ?token=...).
+    const params = buildExportParams();
+    const token = AUTH.getToken && AUTH.getToken();
+    if (token) params.set('token', token);
+    window.open(`${API}/rapport-secteur-marque/pdf?${params}`, '_blank');
+  } catch(err){
+    alert('Erreur export PDF : ' + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = prevTxt;
+  }
+}
+
+initFilters().then(load);
+</script>
+</body>
+</html>

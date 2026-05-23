@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d2e;
+      --surface2: #1e2235;
+      --border: #2a2d3e;
+      --text: #e2e8f0;
+      --text-muted: #8892a4;
+      --blue: #2196F3;
+      --green: #4CAF50;
+      --orange: #FF9800;
+      --purple: #9C27B0;
+      --red: #F44336;
+      --radius: 12px;
+      --gap: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 16px;
+      position: sticky; top: 0; z-index: 10;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    }
+    header h1 { font-size: 1rem; font-weight: 600; margin-right: 8px; white-space: nowrap; }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+    .filters select {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
+    }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    #status-dot { width: 9px; height: 9px; border-radius: 50%; background: #666; }
+    #status-dot.ok { background: var(--green); }
+    #status-dot.error { background: var(--red); }
+    #last-update { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
+    #refresh-btn {
+      background: var(--blue); border: none; color: #fff;
+      padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;
+    }
+    #refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .filters select { max-width: 200px; }
+    #custom-dates { display: none; align-items: center; gap: 4px; }
+    #custom-dates input[type=date] {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 8px; font-size: 0.78rem; cursor: pointer;
+    }
+    /* ── Multi-select widget (commerciaux, bases) ── */
+    .ms-wrap { position: relative; display: inline-flex; }
+    .ms-btn {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px; max-width: 200px;
+    }
+    .ms-btn span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ms-btn:hover, .ms-btn.open { border-color: var(--blue); }
+    .ms-btn::after { content: '▾'; font-size: .65rem; color: var(--text-muted); flex-shrink: 0; }
+    .ms-dd {
+      position: absolute; top: calc(100% + 4px); left: 0;
+      min-width: 180px; max-height: 280px; overflow-y: auto;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 4px 0; z-index: 100;
+      box-shadow: 0 6px 18px rgba(0,0,0,.35); display: none;
+    }
+    .ms-dd.open { display: block; }
+    .ms-dd label {
+      display: flex; align-items: center; gap: 8px; padding: 5px 12px;
+      font-size: 0.78rem; cursor: pointer; color: var(--text);
+    }
+    .ms-dd label:hover { background: var(--surface2); }
+    .ms-dd label.all-opt {
+      color: var(--text-muted); font-style: italic;
+      border-bottom: 1px solid var(--border); margin-bottom: 3px; padding-bottom: 6px;
+    }
+    .ms-dd input[type=checkbox] { accent-color: var(--blue); cursor: pointer; }
+
+    /* ── Layout ── */
+    .container { padding: var(--gap); max-width: 1400px; margin: 0 auto; }
+    .error-banner {
+      background: #2a1a1a; border: 1px solid var(--red);
+      border-radius: var(--radius); padding: 10px 14px;
+      color: var(--red); font-size: 0.85rem; margin-bottom: var(--gap); display: none;
+    }
+
+    /* ── KPI cards ── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: var(--gap); margin-bottom: var(--gap);
+    }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 12px;
+      border-left: 4px solid var(--blue);
+    }
+    .kpi-label { font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .kpi-value { font-size: 1.55rem; font-weight: 700; line-height: 1.1; }
+    .kpi-unit  { font-size: 0.8rem; color: var(--text-muted); margin-left: 2px; }
+    .kpi-evol  { font-size: 0.75rem; margin-top: 5px; }
+    .kpi-evol.pos { color: var(--green); }
+    .kpi-evol.neg { color: var(--red); }
+    .kpi-evol.neu { color: var(--text-muted); }
+
+    /* ── Charts ── */
+    .chart-row {
+      display: grid; gap: var(--gap); margin-bottom: var(--gap);
+    }
+    .row-full  { grid-template-columns: 1fr; }
+    .row-2col  { grid-template-columns: 1fr; }
+    .row-3col  { grid-template-columns: 1fr; }
+    @media (min-width: 768px) {
+      .row-2col { grid-template-columns: 1fr 1fr; }
+      .row-3col { grid-template-columns: 2fr 1fr; }
+    }
+    .chart-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+    }
+    .chart-card h3 {
+      font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 12px;
+    }
+    .chart-card canvas { max-height: 260px; }
+    .chart-card.tall { display: flex; flex-direction: column; }
+    .chart-card.tall .canvas-wrap { position: relative; flex: 1; min-height: 480px; }
+    .chart-card.tall canvas { max-height: none !important; }
+    .no-data { color: var(--text-muted); font-size: 0.82rem; padding: 20px 0; text-align: center; }
+
+    .skeleton { animation: pulse 1.5s ease-in-out infinite; background: var(--border); border-radius: 4px; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── AI Panel ── */
+    #ai-btn {
+      background: linear-gradient(135deg, #7c3aed, #2196F3);
+      border: none; color: #fff; padding: 5px 12px;
+      border-radius: 6px; font-size: 0.8rem; cursor: pointer; white-space: nowrap;
+      position: relative;
+    }
+    #ai-btn .badge {
+      position: absolute; top: -4px; right: -4px;
+      background: #FF9800; color: #000; border-radius: 50%;
+      width: 14px; height: 14px; font-size: 0.6rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #ai-panel {
+      position: fixed; top: 0; right: -440px; width: 430px; height: 100vh;
+      background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; z-index: 100;
+      transition: right 0.3s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.4);
+    }
+    #ai-panel.open { right: 0; }
+    .ai-panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .ai-panel-header h2 { font-size: 0.9rem; font-weight: 600; }
+    .ai-panel-header select {
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 8px; font-size: 0.78rem; cursor: pointer;
+    }
+    #ai-new-btn {
+      background: none; border: 1px solid var(--border); color: var(--text-muted);
+      font-size: 0.75rem; cursor: pointer; padding: 3px 8px; border-radius: 5px;
+      margin-left: auto;
+    }
+    #ai-new-btn:hover { color: var(--text); border-color: var(--text-muted); }
+    #ai-close-btn {
+      background: none; border: none; color: var(--text-muted);
+      font-size: 1.2rem; cursor: pointer; padding: 2px 6px;
+    }
+    #ai-chat-area {
+      flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .ai-msg { display: flex; flex-direction: column; gap: 4px; max-width: 85%; }
+    .ai-msg.user { align-self: flex-end; }
+    .ai-msg.assistant { align-self: flex-start; }
+    .ai-bubble {
+      padding: 8px 12px; border-radius: 10px; font-size: 0.82rem; line-height: 1.45;
+    }
+    .ai-msg.user .ai-bubble { background: var(--blue); color: #fff; border-bottom-right-radius: 3px; }
+    .ai-msg.assistant .ai-bubble { background: var(--surface2); color: var(--text); border-bottom-left-radius: 3px; border: 1px solid var(--border); }
+    .ai-preview {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px; margin-top: 4px; font-size: 0.78rem;
+    }
+    .ai-preview-title { color: var(--text-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+    .ai-preview-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+    .ai-preview-table th { color: var(--text-muted); text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); }
+    .ai-preview-table td { padding: 3px 6px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .ai-preview-table tr:last-child td { border-bottom: none; }
+    .ai-preview canvas { max-height: 180px; width: 100% !important; }
+    .ai-explanation { color: var(--text-muted); font-size: 0.78rem; font-style: italic; padding: 4px 0; }
+    .ai-typing { color: var(--text-muted); font-size: 0.8rem; padding: 4px 0; }
+    .ai-typing span { animation: blink 1.2s ease-in-out infinite; }
+    .ai-typing span:nth-child(2) { animation-delay: .2s; }
+    .ai-typing span:nth-child(3) { animation-delay: .4s; }
+    @keyframes blink { 0%,80%,100%{opacity:0} 40%{opacity:1} }
+
+    .ai-panel-footer { padding: 10px 12px; border-top: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+    .ai-input-row { display: flex; gap: 8px; }
+    #ai-input {
+      flex: 1; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 10px; font-size: 0.82rem; resize: none;
+      font-family: inherit; min-height: 60px;
+    }
+    #ai-input:focus { outline: none; border-color: var(--blue); }
+    #ai-send-btn {
+      background: var(--blue); border: none; color: #fff;
+      padding: 8px 14px; border-radius: 8px; font-size: 0.82rem; cursor: pointer;
+      align-self: flex-end;
+    }
+    #ai-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #ai-validate-btn {
+      background: var(--green); border: none; color: #fff;
+      padding: 8px 14px; border-radius: 8px; font-size: 0.82rem; cursor: pointer;
+      width: 100%; opacity: 0.35; cursor: not-allowed;
+    }
+    #ai-validate-btn.ready { opacity: 1; cursor: pointer; }
+    #ai-validate-btn:disabled { opacity: 0.2; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📊 TB Reporting<span id="header-context" style="margin-left:10px;font-size:.78rem;font-weight:500;color:var(--text-muted)"></span></h1>
+  <a href="/dashboard.html" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none;padding:4px 8px;border:1px solid var(--border);border-radius:6px;white-space:nowrap">📊 Tableaux de bord & Rapports</a>
+  <a href="/backoffice.html" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none;padding:4px 8px;border:1px solid var(--border);border-radius:6px;white-space:nowrap">⚙️ Backoffice</a>
+  <a href="/settings.html" style="color:var(--text-muted);font-size:0.78rem;text-decoration:none;padding:4px 8px;border:1px solid var(--border);border-radius:6px;white-space:nowrap">🔧 Paramètres</a>
+  <div class="filters">
+    <span id="dbs-wrap-host"><!-- ms-wrap dbs injecté dynamiquement (visible uniquement si plusieurs bases) --></span>
+    <select id="sel-periode" onchange="onPeriodeChange()"></select>
+    <select id="sel-fin" onchange="loadAll()" style="display:none"></select>
+    <div id="custom-dates">
+      <input type="date" id="date-debut" onchange="loadAll()">
+      <span style="color:var(--text-muted);font-size:.75rem">→</span>
+      <input type="date" id="date-fin" onchange="loadAll()">
+    </div>
+    <select id="sel-mois" onchange="loadAll()" style="display:none"></select>
+    <select id="sel-actif" onchange="onActifChange()" title="Filtrer commerciaux actifs/inactifs">
+      <option value="all" selected>Tous (actifs + inactifs)</option>
+      <option value="O">Actifs uniquement</option>
+      <option value="N">Inactifs uniquement</option>
+    </select>
+    <span id="rep-wrap-host"><!-- ms-wrap repid injecté dynamiquement --></span>
+  </div>
+  <div class="header-right">
+    <button id="ai-btn" onclick="toggleAIPanel()">✨ Générer avec IA</button>
+    <!-- badge ajouté dynamiquement par aiUpdateBadge() -->
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button id="refresh-btn" onclick="loadAll()">↻ Actualiser</button>
+    <span id="header-user" style="font-size:.75rem;color:var(--text-muted)"></span>
+    <button onclick="AUTH.logout()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer">Déconnexion</button>
+  </div>
+</header>
+
+<!-- ── AI Generation Panel ── -->
+<div id="ai-panel">
+  <div class="ai-panel-header">
+    <h2>✨ Génération IA</h2>
+    <select id="ai-target">
+      <option value="dashboard">Tableau de bord</option>
+      <option value="report">Rapport email</option>
+    </select>
+    <button id="ai-new-btn" onclick="aiNewConversation()" title="Nouvelle conversation">↺ Nouveau</button>
+    <button id="ai-close-btn" onclick="toggleAIPanel()">✕</button>
+  </div>
+  <div id="ai-chat-area"></div>
+  <div class="ai-panel-footer">
+    <div class="ai-input-row">
+      <textarea id="ai-input" placeholder="Décrivez le tableau de bord ou rapport à générer…" onkeydown="aiInputKeydown(event)"></textarea>
+      <button id="ai-send-btn" onclick="aiSend()">Envoyer</button>
+    </div>
+    <button id="ai-validate-btn" onclick="aiValidate()" title="Générez d'abord une configuration via le chat">✓ Valider et enregistrer</button>
+  </div>
+</div>
+
+<div class="container">
+  <div id="error-banner" class="error-banner"></div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+    <div class="kpi-card"><div class="kpi-label skeleton">&nbsp;</div><div class="kpi-value skeleton" style="height:32px"></div></div>
+  </div>
+
+  <!-- Évolution mensuelle -->
+  <div class="chart-row row-full">
+    <div class="chart-card">
+      <h3 id="title-mensuel">Évolution mensuelle CA HT</h3>
+      <canvas id="chart-mensuel"></canvas>
+    </div>
+  </div>
+
+  <!-- Top clients + CA par commercial -->
+  <div class="chart-row row-3col">
+    <div class="chart-card tall">
+      <h3>Top 20 clients — CA HT</h3>
+      <div class="canvas-wrap"><canvas id="chart-clients"></canvas></div>
+    </div>
+    <div class="chart-card tall">
+      <h3>CA par commercial</h3>
+      <div class="canvas-wrap"><canvas id="chart-rep"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Top familles -->
+  <div class="chart-row row-full">
+    <div class="chart-card">
+      <h3>Top familles articles — CA HT</h3>
+      <canvas id="chart-familles"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '/api/commercial';
+const charts = {};
+let exercices = [];
+
+const PALETTE = [
+  '#2196F3','#4CAF50','#FF9800','#9C27B0','#F44336',
+  '#00BCD4','#FFEB3B','#E91E63','#009688','#FF5722'
+];
+
+function fmt(n, decimals = 0) {
+  if (n === null || n === undefined) return '—';
+  return new Intl.NumberFormat('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
+}
+function fmtEuro(n) { return fmt(n) + ' €'; }
+function hexAlpha(hex, a) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function pad(n) { return String(n).padStart(2,'0'); }
+function isoDate(d) { return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+
+function qs(id) { return document.getElementById(id); }
+
+const MOIS_NOMS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+function buildCalMoisOptions() {
+  return `<option value="">Toute l'année</option>` +
+    MOIS_NOMS.map((n, i) => `<option value="${i+1}">${n}</option>`).join('');
+}
+
+function buildExeMoisOptions(d0, d1) {
+  let html = `<option value="">Tout l'exercice</option>`;
+  let d = new Date(d0 + 'T00:00:00');
+  const end = new Date(d1 + 'T00:00:00');
+  while (d <= end) {
+    const y = d.getFullYear(), m = d.getMonth();
+    html += `<option value="${y}-${pad(m+1)}">${MOIS_NOMS[m]} ${y}</option>`;
+    d = new Date(y, m + 1, 1);
+  }
+  return html;
+}
+
+// Lit la sélection multi du ms-wrap commerciaux et renvoie une chaîne CSV ou ''
+function getRepidValue() {
+  const wrap = document.querySelector('.ms-wrap[data-key="repid"]');
+  if (!wrap) return '';
+  const all = wrap.querySelector('input.ms-all');
+  if (all && all.checked) return '';
+  const checked = [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c => c.checked).map(c => c.value);
+  return checked.join(',');
+}
+
+// Lit la sélection multi-base et renvoie une CSV ('' = base courante uniquement)
+function getDbsValue() {
+  const wrap = document.querySelector('.ms-wrap[data-key="dbs"]');
+  if (!wrap) return '';
+  const checked = [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c => c.checked).map(c => c.value);
+  // Si tout est coché ou rien : on n'envoie rien (l'API utilise alors la base de l'utilisateur)
+  if (!checked.length) return '';
+  return checked.join(',');
+}
+
+function getActifValue() {
+  return qs('sel-actif')?.value || 'all';
+}
+
+// Résout la valeur du sélecteur en paramètres API
+function getFilters() {
+  const val   = qs('sel-periode').value || '';
+  const repid = getRepidValue();
+  const mois  = qs('sel-mois').value || '';
+
+  if (val === 'custom') {
+    const d0 = qs('date-debut').value, d1 = qs('date-fin').value;
+    if (!d0 || !d1) return null;
+    return { date_debut: d0, date_fin: d1, repid };
+  }
+  if (val.startsWith('cal:')) {
+    const annee = val.slice(4);
+    const annee_fin = qs('sel-fin')?.value || '';
+    return { annee, ...(annee_fin && annee_fin !== annee ? { annee_fin } : {}), mois, repid };
+  }
+  if (val.startsWith('ytd_exe:')) {
+    const [, d0] = val.split(':');
+    // Début d'exercice → aujourd'hui
+    return { date_debut: d0, date_fin: isoDate(new Date()), repid };
+  }
+  if (val.startsWith('exe:')) {
+    const finExe = qs('sel-fin')?.value || '';
+    const parts = val.split(':');
+    const d0 = parts[1];
+    const d1 = finExe.startsWith('exe:') ? finExe.split(':')[2] : parts[2];
+    if (mois) {
+      const [y, m] = mois.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      return { date_debut: `${y}-${pad(m)}-01`, date_fin: `${y}-${pad(m)}-${pad(lastDay)}`, repid };
+    }
+    return { date_debut: d0, date_fin: d1, repid };
+  }
+  // Préréglages basés sur la date du jour
+  const today = new Date();
+  const presets = {
+    ytd:   { date_debut: `${today.getFullYear()}-01-01`, date_fin: isoDate(today) },
+    month: { date_debut: `${today.getFullYear()}-${pad(today.getMonth()+1)}-01`,
+             date_fin:   isoDate(new Date(today.getFullYear(), today.getMonth()+1, 0)) },
+    '30j': { date_debut: isoDate(new Date(today - 30*86400000)), date_fin: isoDate(today) },
+    '90j': { date_debut: isoDate(new Date(today - 90*86400000)), date_fin: isoDate(today) },
+    '12m': { date_debut: isoDate(new Date(today.getFullYear()-1, today.getMonth()+1, 1)),
+             date_fin:   isoDate(today) },
+  };
+  return { ...(presets[val] || presets.ytd), repid };
+}
+
+function buildParams(extra = {}) {
+  const f = { ...getFilters(), ...extra };
+  if (!f) return '';
+  const dbs = getDbsValue();
+  if (dbs) f.dbs = dbs;
+  const actif = getActifValue();
+  if (actif && actif !== 'all') f.actif = actif;
+  return Object.entries(f).filter(([,v]) => v !== '' && v != null).map(([k,v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
+// Affiche/masque et reconstruit les contrôles selon le mode sélectionné
+function onPeriodeChange() {
+  const val      = qs('sel-periode').value || '';
+  const isCal    = val.startsWith('cal:');
+  const isExe    = val.startsWith('exe:');
+  const isCustom = val === 'custom';
+  const selMois  = qs('sel-mois');
+
+  const selFin = qs('sel-fin');
+  if (isCal) {
+    selMois.innerHTML     = buildCalMoisOptions();
+    selMois.style.display = '';
+    // rebuild fin as calendar years
+    const curY = new Date().getFullYear();
+    const calYears = Array.from({length:6}, (_, i) => curY - i);
+    selFin.innerHTML = `<option value="">= Début</option>` + calYears.map(y => `<option value="${y}">${y}</option>`).join('');
+    selFin.style.display  = '';
+  } else if (isExe) {
+    const [, d0, d1]      = val.split(':');
+    selMois.innerHTML     = buildExeMoisOptions(d0, d1);
+    selMois.style.display = '';
+    // rebuild fin as fiscal years
+    selFin.innerHTML = `<option value="">= Début</option>` +
+      exercices.map(e => `<option value="exe:${e.date_debut}:${e.date_fin}">${e.libelle||e.annee_debut||''}</option>`).join('');
+    selFin.style.display  = '';
+  } else {
+    // ytd_exe, ytd, month, glissant, custom → pas de filtre mois/fin
+    selMois.style.display = 'none';
+    selFin.style.display  = 'none';
+  }
+
+  qs('custom-dates').style.display = isCustom ? 'flex' : 'none';
+  if (!isCustom) loadAll();
+}
+
+// ── Connexions / multi-base ──────────────────────────────────
+let allConnections = [];  // [{ id, label, server, database }]
+
+function escapeHtmlText(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── Multi-select widget (mêmes helpers que dashboard.html) ────
+function toggleMs(e, key) {
+  e.stopPropagation();
+  const wrap = e.currentTarget.closest('.ms-wrap');
+  const dd = wrap.querySelector('.ms-dd');
+  const btn = wrap.querySelector('.ms-btn');
+  const isOpen = dd.classList.contains('open');
+  document.querySelectorAll('.ms-dd.open').forEach(d => {
+    d.classList.remove('open'); d.previousElementSibling?.classList.remove('open');
+  });
+  if (!isOpen) { dd.classList.add('open'); btn.classList.add('open'); }
+}
+function updateMsBtn(key) {
+  const wrap = document.querySelector(`.ms-wrap[data-key="${key}"]`);
+  if (!wrap) return;
+  const allItems = [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')];
+  const checked  = allItems.filter(c => c.checked);
+  const all = wrap.querySelector('input.ms-all');
+  const btn = wrap.querySelector('.ms-btn span');
+  const allLabel    = wrap.dataset.allLabel || '— Tous —';
+  const checkAllMode = wrap.dataset.allBehavior === 'check-all';
+  if (checkAllMode) {
+    if (all) all.checked = false;
+    const allChecked = allItems.length > 0 && checked.length === allItems.length;
+    if (btn) btn.textContent = allChecked ? allLabel : (checked.length === 1 ? checked[0].dataset.label : `${checked.length} sélectionnés`);
+  } else {
+    if (checked.length === 0 || (all && all.checked)) {
+      if (btn) btn.textContent = allLabel;
+      if (all) { all.checked = true; wrap.querySelectorAll('input:not(.ms-all)').forEach(c => c.checked = false); }
+    } else {
+      if (btn) btn.textContent = checked.length === 1 ? checked[0].dataset.label : `${checked.length} sélectionnés`;
+      if (all) all.checked = false;
+    }
+  }
+}
+function onMsChange(e, key) {
+  const cb = e.target, wrap = cb.closest('.ms-wrap');
+  if (cb.classList.contains('ms-all')) {
+    if (wrap.dataset.allBehavior === 'check-all') {
+      wrap.querySelectorAll('input:not(.ms-all)').forEach(c => c.checked = true);
+    } else {
+      wrap.querySelectorAll('input:not(.ms-all)').forEach(c => c.checked = false);
+    }
+  } else {
+    const all = wrap.querySelector('input.ms-all');
+    if (all) all.checked = false;
+  }
+  updateMsBtn(key);
+  // Au changement de base → recharger filtres (commerciaux dépendent de la base) + data
+  // Au changement de commercial → juste recharger les data
+  if (key === 'dbs') {
+    onDbsChange();
+  } else if (key === 'repid') {
+    loadAll();
+  }
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.ms-dd')) return;
+  document.querySelectorAll('.ms-dd.open').forEach(d => {
+    d.classList.remove('open'); d.previousElementSibling?.classList.remove('open');
+  });
+});
+
+// Construit le ms-wrap dbs (multi-base) — affiche la base courante + les connexions configurées
+async function buildDbsWrap() {
+  try {
+    allConnections = await fetch('/api/settings/connections').then(r => r.ok ? r.json() : []);
+  } catch { allConnections = []; }
+  const host = qs('dbs-wrap-host');
+  if (!host) return;
+  // Pas de connexions supplémentaires → on n'affiche rien (la base par défaut suffit)
+  if (!allConnections.length) {
+    host.innerHTML = '';
+    return;
+  }
+  const u = AUTH.getUser();
+  const defaultLabel = u?.societe || u?.database || 'Base courante';
+  const all = [{ id: 'default', label: defaultLabel }, ...allConnections.map(c => ({ id: c.id, label: c.label || c.id }))];
+  // Par défaut : seule la base courante est cochée
+  let items = `<label class="all-opt"><input type="checkbox" class="ms-all" onchange="onMsChange(event,'dbs')"> Toutes</label>`;
+  items += all.map((c, i) => `<label><input type="checkbox" value="${escapeHtmlText(c.id)}" data-label="${escapeHtmlText(c.label)}"${i === 0 ? ' checked' : ''} onchange="onMsChange(event,'dbs')">${escapeHtmlText(c.label)}</label>`).join('');
+  host.innerHTML = `<div class="ms-wrap" data-key="dbs" data-all-label="— Toutes les bases —" data-all-behavior="check-all" title="Source / Multi-base">
+    <button type="button" class="ms-btn" onclick="toggleMs(event,'dbs')"><span>${escapeHtmlText(defaultLabel)}</span></button>
+    <div class="ms-dd">${items}</div>
+  </div>`;
+}
+
+// Au changement de base : recharger les filtres dépendants (commerciaux) + data + libellé contexte
+async function onDbsChange() {
+  await initFilters();
+  loadAll();
+  const ctx = qs('header-context');
+  if (ctx) {
+    const dbs = getDbsValue();
+    if (!dbs) {
+      const u = AUTH.getUser();
+      const parts = [];
+      if (u?.societe)  parts.push(`🏢 ${u.societe}`);
+      if (u?.database) parts.push(`🗄️ ${u.database}`);
+      ctx.textContent = parts.length ? '· ' + parts.join(' · ') : '';
+    } else {
+      const ids = dbs.split(',');
+      ctx.textContent = ids.length === 1
+        ? (() => {
+            const id = ids[0];
+            if (id === 'default') {
+              const u = AUTH.getUser();
+              return `· 🗄️ ${u?.societe || u?.database || 'Base courante'}`;
+            }
+            const c = allConnections.find(c => c.id === id);
+            return c ? `· 🏢 ${c.label || ''} · 🗄️ ${c.database || ''}` : '';
+          })()
+        : `· 🗄️ ${ids.length} bases`;
+    }
+  }
+}
+
+// Au changement du filtre Actif : recharger la liste de commerciaux puis la data
+async function onActifChange() {
+  await initFilters();
+  loadAll();
+}
+
+// ── Init filtres ──────────────────────────────────────────────
+async function initFilters() {
+  // La liste des commerciaux est lue sur la 1ère base sélectionnée (ou la base utilisateur).
+  const dbs = getDbsValue();
+  const firstDb = dbs ? dbs.split(',')[0] : '';
+  const params = new URLSearchParams();
+  if (firstDb && firstDb !== 'default') params.set('connId', firstDb);
+  const actif = getActifValue();
+  if (actif && actif !== 'all') params.set('actif', actif);
+  const qsStr = params.toString();
+  const data = await fetch(`${API}/filters${qsStr ? '?' + qsStr : ''}`).then(r => { if (r.status===401) AUTH.logout('Session expirée'); return r.json(); });
+  const today = new Date();
+  const curYear = today.getFullYear();
+
+  // Construction du <select> de période — préserve la sélection courante quand possible
+  const sel = qs('sel-periode');
+  const previousPeriode = sel.value || '';
+  let html = '';
+
+  const todayStr = isoDate(today);
+  const curExe = (data.exercices || []).find(e => e.date_debut <= todayStr && todayStr <= e.date_fin);
+
+  if (data.exercices && data.exercices.length) {
+    exercices = data.exercices;
+    html += `<optgroup label="─ YTD exercice ─">`;
+    data.exercices.forEach(e => {
+      const isCur = curExe && e.date_debut === curExe.date_debut;
+      const anneeLabel = e.annee_debut === e.annee_fin ? e.annee_debut : `${e.annee_debut}/${e.annee_fin}`;
+      const label = e.libelle || `Exercice ${anneeLabel}`;
+      html += `<option value="ytd_exe:${e.date_debut}:${e.date_fin}"${isCur?' selected':''}>YTD ${label}${isCur?' (en cours)':''}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+
+  html += `<optgroup label="─ Aujourd'hui ─">`;
+  html += `<option value="ytd"${curExe?'':' selected'}>YTD calendaire (depuis le 01/01)</option>`;
+  html += `<option value="month">Mois en cours</option>`;
+  html += `<option value="30j">30 derniers jours</option>`;
+  html += `<option value="90j">90 derniers jours</option>`;
+  html += `<option value="12m">12 derniers mois glissants</option>`;
+  html += `</optgroup>`;
+
+  if (data.annees && data.annees.length) {
+    html += `<optgroup label="─ Années calendaires ─">`;
+    data.annees.forEach(a => {
+      html += `<option value="cal:${a}">${a}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+
+  if (data.exercices && data.exercices.length) {
+    html += `<optgroup label="─ Exercices fiscaux (complets) ─">`;
+    data.exercices.forEach(e => {
+      const anneeLabel = e.annee_debut === e.annee_fin
+        ? e.annee_debut
+        : `${e.annee_debut}/${e.annee_fin}`;
+      const fmtD0 = formatDate(e.date_debut), fmtD1 = formatDate(e.date_fin);
+      const label = e.libelle
+        ? `${e.libelle} (${fmtD0} → ${fmtD1})`
+        : `Exercice ${anneeLabel} (${fmtD0} → ${fmtD1})`;
+      html += `<option value="exe:${e.date_debut}:${e.date_fin}">${label}</option>`;
+    });
+    html += `</optgroup>`;
+  }
+
+  html += `<optgroup label="─ Période libre ─">`;
+  html += `<option value="custom">Personnalisée (choisir les dates)...</option>`;
+  html += `</optgroup>`;
+
+  sel.innerHTML = html;
+  // Restaure la sélection précédente si toujours présente dans les nouvelles options (préserve l'UX au refresh)
+  if (previousPeriode && [...sel.options].some(o => o.value === previousPeriode)) sel.value = previousPeriode;
+
+  // Peupler le sélecteur "Année fin" avec les mêmes années calendaires
+  const selFin = qs('sel-fin');
+  const previousFin = selFin.value || '';
+  selFin.innerHTML = `<option value="">= Début</option>`;
+  (data.annees || []).forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a; opt.textContent = a;
+    selFin.appendChild(opt);
+  });
+  if (previousFin && [...selFin.options].some(o => o.value === previousFin)) selFin.value = previousFin;
+
+  // Pré-remplir les dates libres sur aujourd'hui (uniquement si vide — préserve les choix utilisateur)
+  if (!qs('date-debut').value) qs('date-debut').value = `${curYear}-01-01`;
+  if (!qs('date-fin').value)   qs('date-fin').value   = isoDate(today);
+
+  // Afficher/masquer les contrôles selon la sélection initiale
+  onPeriodeChange();
+
+  // Commerciaux : (re)construit le ms-wrap dans #rep-wrap-host à chaque init (la liste dépend de la base et du filtre actif)
+  buildRepWrap(data.commerciaux || []);
+}
+
+// Construit / reconstruit le ms-wrap des commerciaux dans #rep-wrap-host
+function buildRepWrap(commerciaux) {
+  const host = qs('rep-wrap-host');
+  if (!host) return;
+  // Préserve les TIRID actuellement cochés pour les ré-appliquer après rebuild
+  const previousChecked = (() => {
+    const wrap = host.querySelector('.ms-wrap[data-key="repid"]');
+    if (!wrap) return [];
+    const all = wrap.querySelector('input.ms-all');
+    if (all && all.checked) return [];
+    return [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c => c.checked).map(c => c.value);
+  })();
+  const allChecked = previousChecked.length === 0;
+  let items = `<label class="all-opt"><input type="checkbox" class="ms-all"${allChecked?' checked':''} onchange="onMsChange(event,'repid')"> Tous</label>`;
+  items += commerciaux.map(c => {
+    const id = String(c.TIRID);
+    const sel = previousChecked.includes(id) ? ' checked' : '';
+    return `<label><input type="checkbox" value="${escapeHtmlText(id)}" data-label="${escapeHtmlText(c.nom)}"${sel} onchange="onMsChange(event,'repid')">${escapeHtmlText(c.nom)}</label>`;
+  }).join('');
+  host.innerHTML = `<div class="ms-wrap" data-key="repid" data-all-label="— Tous les commerciaux —" title="Filtrer par commercial">
+    <button type="button" class="ms-btn" onclick="toggleMs(event,'repid')"><span>— Tous les commerciaux —</span></button>
+    <div class="ms-dd">${items}</div>
+  </div>`;
+  updateMsBtn('repid');
+}
+
+// ── KPIs ─────────────────────────────────────────────────────
+async function loadKpis() {
+  const data = await fetch(`${API}/kpis?${buildParams()}`).then(r => r.json());
+  const { ca_periode, ca_n1, nb_factures, nb_clients } = data;
+  const periodeLabel = formatDatesInLabel(data.periodeLabel);
+  const n1Label      = formatDatesInLabel(data.n1Label);
+  const evol = ca_n1 > 0 ? ((ca_periode - ca_n1) / ca_n1 * 100) : null;
+  const ticketMoyen = nb_factures > 0 ? ca_periode / nb_factures : 0;
+
+  function evolHtml(val) {
+    if (val === null) return `<div class="kpi-evol neu">— vs N-1</div>`;
+    const cls = val >= 0 ? 'pos' : 'neg';
+    const arrow = val >= 0 ? '▲' : '▼';
+    return `<div class="kpi-evol ${cls}">${arrow} ${val >= 0 ? '+' : ''}${fmt(val, 1)} % vs N-1</div>`;
+  }
+
+  qs('kpi-grid').innerHTML = `
+    <div class="kpi-card" style="border-left-color:var(--blue)">
+      <div class="kpi-label">CA HT — ${periodeLabel || ''}</div>
+      <div class="kpi-value">${fmt(ca_periode)}<span class="kpi-unit">€</span></div>
+      ${evolHtml(evol)}
+    </div>
+    <div class="kpi-card" style="border-left-color:var(--purple)">
+      <div class="kpi-label">CA N-1 — ${n1Label || ''}</div>
+      <div class="kpi-value">${fmt(ca_n1)}<span class="kpi-unit">€</span></div>
+      <div class="kpi-evol neu">Référence</div>
+    </div>
+    <div class="kpi-card" style="border-left-color:var(--orange)">
+      <div class="kpi-label">Nb factures</div>
+      <div class="kpi-value">${fmt(nb_factures)}</div>
+    </div>
+    <div class="kpi-card" style="border-left-color:var(--green)">
+      <div class="kpi-label">Clients actifs</div>
+      <div class="kpi-value">${fmt(nb_clients)}</div>
+    </div>
+    <div class="kpi-card" style="border-left-color:#00BCD4">
+      <div class="kpi-label">Ticket moyen</div>
+      <div class="kpi-value">${fmt(ticketMoyen)}<span class="kpi-unit">€</span></div>
+    </div>
+  `;
+}
+
+// Garantit la présence du canvas — si un précédent chargement a remplacé le canvas
+// par un <p> "Aucune donnée", le recrée à la même place pour permettre un nouveau dessin.
+function ensureCanvas(id) {
+  let el = document.getElementById(id);
+  if (el && el.tagName === 'CANVAS') return el;
+  const canvas = document.createElement('canvas');
+  canvas.id = id;
+  if (el) { el.replaceWith(canvas); }
+  return canvas;
+}
+
+// ── Évolution mensuelle ───────────────────────────────────────
+async function loadMensuel() {
+  const data = await fetch(`${API}/mensuel?${buildParams()}`).then(r => r.json());
+  if (data.error || !data.months) throw new Error(data.error || 'Réponse inattendue (/mensuel)');
+
+  qs('title-mensuel').textContent =
+    `Évolution mensuelle CA HT — ${formatDatesInLabel(data.periodeLabel)} vs ${formatDatesInLabel(data.n1Label)}`;
+
+  const ctx = ensureCanvas('chart-mensuel').getContext('2d');
+  if (charts.mensuel) charts.mensuel.destroy();
+  charts.mensuel = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: data.months.map(m => m.label),
+      datasets: [
+        {
+          label: formatDatesInLabel(data.periodeLabel),
+          data: data.months.map(m => m.n),
+          backgroundColor: hexAlpha('#2196F3', 0.8),
+          borderColor: '#2196F3', borderWidth: 1,
+        },
+        {
+          label: formatDatesInLabel(data.n1Label),
+          data: data.months.map(m => m.n1),
+          backgroundColor: hexAlpha('#8892a4', 0.45),
+          borderColor: '#8892a4', borderWidth: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label} : ${fmtEuro(ctx.raw)}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#8892a4', callback: v => fmt(v) + ' €' }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// ── Top clients ───────────────────────────────────────────────
+async function loadClients() {
+  const rows = await fetch(`${API}/top-clients?${buildParams({ limit: 20 })}`).then(r => r.json());
+  if (charts.clients) { charts.clients.destroy(); charts.clients = null; }
+  const canvas = ensureCanvas('chart-clients');
+  if (!rows.length) { canvas.replaceWith(Object.assign(document.createElement('p'),{className:'no-data',textContent:'Aucune donnée'})); return; }
+  const ctx = canvas.getContext('2d');
+  charts.clients = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.label),
+      datasets: [{ data: rows.map(r => parseFloat(r.valeur)||0), backgroundColor: hexAlpha('#4CAF50', 0.75), borderColor: '#4CAF50', borderWidth: 1 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${fmtEuro(ctx.raw)}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#e2e8f0', font: { size: 11 }, autoSkip: false }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// ── CA par commercial ─────────────────────────────────────────
+async function loadRep() {
+  const rows = await fetch(`${API}/par-commercial?${buildParams()}`).then(r => r.json());
+  if (charts.rep) { charts.rep.destroy(); charts.rep = null; }
+  const canvas = ensureCanvas('chart-rep');
+  if (!rows.length) { canvas.replaceWith(Object.assign(document.createElement('p'),{className:'no-data',textContent:'Aucune donnée'})); return; }
+  const ctx = canvas.getContext('2d');
+
+  if (rows.length <= 5) {
+    // Doughnut si peu de commerciaux
+    charts.rep = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: rows.map(r => r.label),
+        datasets: [{ data: rows.map(r => parseFloat(r.valeur)||0), backgroundColor: PALETTE, borderColor: '#1a1d2e', borderWidth: 2 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#e2e8f0', font: { size: 11 }, padding: 10 } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label} : ${fmtEuro(ctx.raw)}` } }
+        }
+      }
+    });
+  } else {
+    charts.rep = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: rows.map(r => r.label),
+        datasets: [{ data: rows.map(r => parseFloat(r.valeur)||0), backgroundColor: PALETTE, borderWidth: 1 }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmtEuro(ctx.raw)}` } } },
+        scales: {
+          x: { ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } },
+          y: { ticks: { color: '#e2e8f0', autoSkip: false }, grid: { color: '#2a2d3e' } }
+        }
+      }
+    });
+  }
+}
+
+// ── Top familles ──────────────────────────────────────────────
+async function loadFamilles() {
+  const rows = await fetch(`${API}/top-familles?${buildParams()}`).then(r => r.json());
+  if (charts.familles) { charts.familles.destroy(); charts.familles = null; }
+  const canvas = ensureCanvas('chart-familles');
+  if (!rows.length) { canvas.replaceWith(Object.assign(document.createElement('p'),{className:'no-data',textContent:'Aucune donnée'})); return; }
+  const ctx = canvas.getContext('2d');
+  charts.familles = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: rows.map(r => r.label),
+      datasets: [{ data: rows.map(r => parseFloat(r.valeur)||0), backgroundColor: PALETTE.map(c => hexAlpha(c, 0.75)), borderColor: PALETTE, borderWidth: 1 }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${fmtEuro(ctx.raw)}` } } },
+      scales: {
+        x: { ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+}
+
+// ── Chargement global ─────────────────────────────────────────
+async function loadAll() {
+  if (!getFilters()) return; // dates libres incomplètes
+  const btn = qs('refresh-btn');
+  const dot = qs('status-dot');
+  const banner = qs('error-banner');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await Promise.all([loadKpis(), loadMensuel(), loadClients(), loadRep(), loadFamilles()]);
+    dot.className = 'ok';
+    banner.style.display = 'none';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch (err) {
+    dot.className = 'error';
+    banner.style.display = 'block';
+    banner.textContent = `Erreur : ${err.message}`;
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+// ── État AI (déclaré tôt car aiRestoreHistory s'exécute pendant le démarrage) ──
+const AI_STORAGE_KEY = 'tb_ai_history';
+let aiMessages = [];      // conversation history for multi-turn
+let aiLastConfig = null;  // last valid config from AI
+const aiCharts = {};      // preview chart instances
+
+// ── Démarrage ─────────────────────────────────────────────────
+buildDbsWrap().then(initFilters).then(loadAll);
+aiRestoreHistory();
+// Afficher l'utilisateur connecté
+const _u = AUTH.getUser();
+if (_u) {
+  const el = document.getElementById('header-user');
+  if (el) el.textContent = _u.username + ' (' + (_u.groupName || _u.group) + ')';
+}
+
+// Affiche le contexte société/base à côté du titre. Re-render après refreshSession.
+function renderPageContext() {
+  const u = AUTH.getUser();
+  const ctx = document.getElementById('header-context');
+  if (!u || !ctx) return;
+  const parts = [];
+  if (u.societe)  parts.push(`🏢 ${u.societe}`);
+  if (u.database) parts.push(`🗄️ ${u.database}`);
+  ctx.textContent = parts.length ? '· ' + parts.join(' · ') : '';
+}
+renderPageContext();
+// auth-client appelle refreshSession() en arrière-plan ; rafraîchit après hydration
+setTimeout(renderPageContext, 1500);
+
+// ── AI Panel ──────────────────────────────────────────────────
+// (état déclaré plus haut car utilisé pendant le démarrage)
+
+// Badge sur le bouton IA quand un historique existe
+function aiUpdateBadge() {
+  const btn = qs('ai-btn');
+  let badge = btn.querySelector('.badge');
+  const count = aiMessages.filter(m => m.role === 'user').length;
+  if (count > 0) {
+    if (!badge) { badge = document.createElement('span'); badge.className = 'badge'; btn.appendChild(badge); }
+    badge.textContent = count;
+    btn.title = `${count} message(s) dans l'historique — cliquez pour continuer`;
+  } else {
+    badge?.remove();
+    btn.title = '';
+  }
+}
+
+// Persist conversation to localStorage
+function aiSaveHistory() {
+  try {
+    localStorage.setItem(AI_STORAGE_KEY, JSON.stringify({
+      messages: aiMessages,
+      lastConfig: aiLastConfig,
+      target: qs('ai-target')?.value || 'dashboard',
+      savedAt: new Date().toISOString(),
+    }));
+    aiUpdateBadge();
+  } catch(e) { /* quota dépassé, on ignore */ }
+}
+
+// Restore conversation from localStorage and replay bubbles
+async function aiRestoreHistory() {
+  try {
+    const raw = localStorage.getItem(AI_STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (!saved.messages?.length) return;
+
+    aiMessages = saved.messages;
+    aiLastConfig = saved.lastConfig || null;
+    if (saved.target) qs('ai-target').value = saved.target;
+
+    // Replay messages as bubbles (no preview re-fetch for assistant messages)
+    for (const msg of saved.messages) {
+      if (msg.role === 'user') {
+        aiAppendMsg('user', msg.content);
+      } else {
+        // Try to parse config from assistant raw content
+        let explanation = null, description = null;
+        try {
+          const m = msg.content.match(/\{[\s\S]*\}/);
+          if (m) {
+            const c = JSON.parse(m[0]);
+            explanation = c.explanation || null;
+            description = c.description || c.name || null;
+          }
+        } catch {}
+        aiAppendMsg('assistant', description || '(réponse IA)', { explanation });
+      }
+    }
+
+    if (aiLastConfig) {
+      qs('ai-validate-btn').classList.add('ready');
+      qs('ai-validate-btn').title = '';
+      // Show last preview
+      const previewEl = await aiRenderPreview(aiLastConfig);
+      if (previewEl) {
+        const area = qs('ai-chat-area');
+        const lastAssistant = area.querySelector('.ai-msg.assistant:last-child');
+        if (lastAssistant) lastAssistant.appendChild(previewEl);
+        area.scrollTop = area.scrollHeight;
+      }
+    }
+
+    aiUpdateBadge();
+    const date = saved.savedAt ? new Date(saved.savedAt).toLocaleDateString('fr-FR') : '';
+    const info = document.createElement('div');
+    info.style.cssText = 'text-align:center;color:var(--text-muted);font-size:.7rem;padding:4px 0 8px';
+    info.textContent = `Conversation du ${date} restaurée`;
+    qs('ai-chat-area').insertBefore(info, qs('ai-chat-area').firstChild);
+  } catch(e) { console.warn('Restauration historique IA:', e); }
+}
+
+function aiNewConversation() {
+  if (aiMessages.length && !confirm('Effacer la conversation en cours ?')) return;
+  aiMessages = [];
+  aiLastConfig = null;
+  qs('ai-chat-area').innerHTML = '';
+  qs('ai-validate-btn').classList.remove('ready');
+  qs('ai-validate-btn').title = 'Générez d\'abord une configuration via le chat';
+  localStorage.removeItem(AI_STORAGE_KEY);
+  aiUpdateBadge();
+}
+
+function toggleAIPanel() {
+  const panel = qs('ai-panel');
+  panel.classList.toggle('open');
+}
+
+function aiInputKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); aiSend(); }
+}
+
+function aiAppendMsg(role, text, extra = {}) {
+  const area = qs('ai-chat-area');
+  const div = document.createElement('div');
+  div.className = `ai-msg ${role}`;
+  div.innerHTML = `<div class="ai-bubble">${escHtml(text)}</div>`;
+  if (extra.explanation) {
+    const p = document.createElement('div');
+    p.className = 'ai-explanation';
+    p.textContent = extra.explanation;
+    div.appendChild(p);
+  }
+  if (extra.previewEl) div.appendChild(extra.previewEl);
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  return div;
+}
+
+function aiShowTyping() {
+  const area = qs('ai-chat-area');
+  const div = document.createElement('div');
+  div.className = 'ai-msg assistant';
+  div.id = 'ai-typing-indicator';
+  div.innerHTML = `<div class="ai-bubble ai-typing"><span>●</span><span>●</span><span>●</span></div>`;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+function aiHideTyping() {
+  const el = qs('ai-typing-indicator');
+  if (el) el.remove();
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function fmtCell(v) {
+  if (v === null || v === undefined) return '—';
+  if (typeof v === 'number') return fmt(v);
+  return escHtml(String(v));
+}
+
+async function aiRenderPreview(config) {
+  const src = config.source;
+  const widgets = config.widgets || [];
+  if (!src || !widgets.length) return null;
+
+  const previewEl = document.createElement('div');
+  previewEl.className = 'ai-preview';
+  previewEl.innerHTML = `<div class="ai-preview-title">Aperçu — ${escHtml(config.name || 'Sans titre')}</div><div class="ai-preview-loading" style="color:var(--text-muted);font-size:.75rem">Chargement données…</div>`;
+
+  // Async: fetch data then render
+  (async () => {
+    try {
+      const resp = await fetch('/api/backoffice/preview-source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: src })
+      });
+      const rows = await resp.json();
+      previewEl.querySelector('.ai-preview-loading')?.remove();
+
+      // Handle flat array OR structured object { type, measures, columns, rows/groups }
+      const dataType = Array.isArray(rows) ? 'flat'
+        : rows.type === 'pivot'   ? 'pivot'
+        : rows.type === 'grouped' ? 'grouped'
+        : rows.rows               ? 'simple'   // { measures, rows:[{label,values}] }
+        : 'flat';
+      const isEmpty = dataType === 'flat'    ? !rows.length
+        : dataType === 'pivot'   ? !rows.rows?.length
+        : dataType === 'grouped' ? !rows.groups?.length
+        : !rows.rows?.length;
+
+      if (isEmpty) {
+        previewEl.insertAdjacentHTML('beforeend', '<div style="color:var(--text-muted);font-size:.75rem">Aucune donnée retournée</div>');
+        return;
+      }
+
+      // Normalise to flat rows for simple preview rendering
+      function flattenData(data) {
+        if (Array.isArray(data)) return data;
+        // { measures, rows:[{label, values}] } — simple non-pivot response
+        if (!data.type && data.rows) {
+          const meas = (data.measures || []).map(m => m.key);
+          return data.rows.map(r => {
+            const obj = { Label: r.label };
+            meas.forEach(mk => { obj[mk] = r.values?.[mk] ?? 0; });
+            return obj;
+          });
+        }
+        if (data.type === 'pivot') {
+          // { rows: [{label, values:{col:{measure:val}}}], columns, measures }
+          const cols = data.columns || [];
+          const meas = (data.measures || []).map(m => m.key);
+          return (data.rows || []).map(r => {
+            const obj = { Label: r.label };
+            cols.forEach(c => {
+              meas.forEach(mk => {
+                const key = cols.length > 1 ? `${c} — ${mk}` : c;
+                obj[key] = r.values?.[c]?.[mk] ?? 0;
+              });
+            });
+            return obj;
+          });
+        }
+        if (data.type === 'grouped') {
+          // flatten groups recursively, top level only for preview
+          const meas = (data.measures || []).map(m => m.key);
+          const result = [];
+          function flatGroup(groups, depth) {
+            (groups || []).forEach(g => {
+              const obj = { Label: '  '.repeat(depth) + g.label };
+              if (data.columns) {
+                (data.columns || []).forEach(c => {
+                  meas.forEach(mk => {
+                    obj[`${c} — ${mk}`] = g.subtotal?.[c]?.[mk] ?? 0;
+                  });
+                });
+              } else {
+                meas.forEach(mk => { obj[mk] = g.subtotal?.[mk] ?? 0; });
+              }
+              result.push(obj);
+              if (g.children?.length && depth < 2) flatGroup(g.children, depth + 1);
+            });
+          }
+          flatGroup(data.groups, 0);
+          return result;
+        }
+        // fallback: { rows: [{label, values}] }
+        const meas = (data.measures || []).map(m => m.key);
+        return (data.rows || []).map(r => {
+          const obj = { Label: r.label };
+          meas.forEach(mk => { obj[mk] = r.values?.[mk] ?? 0; });
+          return obj;
+        });
+      }
+
+      const flatRows = flattenData(rows);
+
+      for (const w of widgets) {
+        const wDiv = document.createElement('div');
+        wDiv.style.marginTop = '8px';
+
+        if (w.displayType === 'kpi') {
+          const row = flatRows[0] || {};
+          const kpiHtml = Object.entries(row).map(([k,v]) =>
+            `<div style="display:inline-block;margin:4px 8px 4px 0"><span style="color:var(--text-muted);font-size:.7rem">${escHtml(k)}</span><br><strong>${fmtCell(v)}</strong></div>`
+          ).join('');
+          wDiv.innerHTML = `<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px">${escHtml(w.title||'')}</div>${kpiHtml}`;
+
+        } else if (w.displayType === 'chart') {
+          const keys = Object.keys(flatRows[0] || {});
+          const xKey = keys[0];
+          const yKey = w.chartMeasure ? keys.find(k => k.includes(w.chartMeasure)) || keys[1] : keys[1];
+          const labels = flatRows.map(r => String(r[xKey]||''));
+          // For pivot, render one dataset per column
+          const colKeys = keys.slice(1);
+          const canvasId = 'ai-preview-chart-' + Math.random().toString(36).slice(2);
+          wDiv.innerHTML = `<div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px">${escHtml(w.title||'')}</div><canvas id="${canvasId}"></canvas>`;
+          previewEl.appendChild(wDiv);
+          await new Promise(r => setTimeout(r, 0));
+          const ctx2 = document.getElementById(canvasId)?.getContext('2d');
+          if (ctx2) {
+            if (aiCharts[canvasId]) aiCharts[canvasId].destroy();
+            const datasets = colKeys.slice(0, 6).map((ck, i) => ({
+              label: ck,
+              data: flatRows.map(r => parseFloat(r[ck])||0),
+              backgroundColor: hexAlpha(PALETTE[i % PALETTE.length], .75),
+              borderColor: PALETTE[i % PALETTE.length], borderWidth: 1
+            }));
+            aiCharts[canvasId] = new Chart(ctx2, {
+              type: w.chartType || 'bar',
+              data: { labels, datasets },
+              options: {
+                responsive: true, maintainAspectRatio: true,
+                plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 10 } } } },
+                scales: {
+                  x: { ticks: { color: '#8892a4', maxRotation: 45, font: { size: 10 } }, grid: { color: '#2a2d3e' } },
+                  y: { ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: '#2a2d3e' } }
+                }
+              }
+            });
+          }
+          continue;
+
+        } else {
+          // table
+          const cols = Object.keys(flatRows[0] || {});
+          const preview8 = flatRows.slice(0, 8);
+          wDiv.innerHTML = `
+            <div style="font-size:.72rem;color:var(--text-muted);margin-bottom:4px">${escHtml(w.title||'')} (${flatRows.length} lignes)</div>
+            <div style="overflow-x:auto">
+              <table class="ai-preview-table">
+                <thead><tr>${cols.map(c=>`<th>${escHtml(c)}</th>`).join('')}</tr></thead>
+                <tbody>${preview8.map(r=>`<tr>${cols.map(c=>`<td>${fmtCell(r[c])}</td>`).join('')}</tr>`).join('')}</tbody>
+              </table>
+            </div>`;
+        }
+        previewEl.appendChild(wDiv);
+      }
+    } catch(e) {
+      previewEl.insertAdjacentHTML('beforeend', `<div style="color:var(--red);font-size:.75rem">Erreur aperçu : ${escHtml(e.message)}</div>`);
+    }
+  })();
+
+  return previewEl;
+}
+
+async function aiSend() {
+  const input = qs('ai-input');
+  const sendBtn = qs('ai-send-btn');
+  const prompt = input.value.trim();
+  if (!prompt) return;
+
+  const target = qs('ai-target').value;
+  input.value = '';
+  sendBtn.disabled = true;
+
+  aiAppendMsg('user', prompt);
+
+  // Build messages array for multi-turn
+  aiMessages.push({ role: 'user', content: prompt });
+  aiSaveHistory(); // sauvegarde immédiate dès le message utilisateur
+
+  aiShowTyping();
+
+  try {
+    const resp = await fetch('/api/ai/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: aiMessages, target })
+    });
+    const data = await resp.json();
+    aiHideTyping();
+
+    if (!resp.ok || !data.config) {
+      aiAppendMsg('assistant', data.error || 'Erreur IA');
+      aiMessages.push({ role: 'assistant', content: data.error || 'Erreur' });
+      return;
+    }
+
+    aiLastConfig = data.config;
+    const previewEl = await aiRenderPreview(data.config);
+    aiAppendMsg('assistant', data.config.description || data.config.name || 'Configuration générée', {
+      explanation: data.config.explanation,
+      previewEl
+    });
+    aiMessages.push({ role: 'assistant', content: data.assistantRaw });
+
+    qs('ai-validate-btn').classList.add('ready');
+    qs('ai-validate-btn').title = '';
+    aiSaveHistory();
+
+  } catch(e) {
+    aiHideTyping();
+    aiAppendMsg('assistant', 'Erreur réseau : ' + e.message);
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+async function aiValidate() {
+  if (!aiLastConfig) return;
+  const btn = qs('ai-validate-btn');
+  btn.disabled = true;
+  btn.textContent = 'Enregistrement…';
+
+  const target = qs('ai-target').value;
+  const cfg = aiLastConfig;
+
+  try {
+    // 1. Save custom source
+    const srcResp = await fetch('/api/backoffice/custom-sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: cfg.source?.name || cfg.name || 'Source IA',
+        dimensions: cfg.source?.dimensions || [],
+        measures: cfg.source?.measures || ['ca'],
+        filters: cfg.source?.filters || {},
+        pivot: cfg.source?.pivot || false,
+        pivotCols: cfg.source?.pivotCols || [],
+        ruptures: cfg.source?.ruptures || [],
+        limit: cfg.source?.limit || 20,
+      })
+    });
+    const srcData = await srcResp.json();
+    if (!srcResp.ok) throw new Error(srcData.error || 'Erreur création source');
+    const sourceId = srcData.id;
+
+    // 2. Build widgets referencing the new source (pivot/pivotCols/ruptures must be on the widget
+    //    because dashboard.html reads w.pivot directly and sends it to widget-data)
+    const src = cfg.source || {};
+    const widgets = (cfg.widgets || []).map(w => ({
+      ...w,
+      source: sourceId,
+      params: src.filters || {},
+      pivot:     src.pivot     || false,
+      pivotCols: src.pivotCols || [],
+      ruptures:  src.ruptures  || [],
+    }));
+
+    if (target === 'dashboard') {
+      const resp = await fetch('/api/backoffice/dashboards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: cfg.name || 'TDB IA', description: cfg.description || '', widgets })
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error);
+      aiAppendMsg('assistant', `✓ Tableau de bord "${d.name}" enregistré avec succès ! Retrouvez-le dans la page Tableaux de bord.`);
+    } else {
+      const resp = await fetch('/api/backoffice/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: cfg.name || 'Rapport IA', description: cfg.description || '', recipients: '', widgets })
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error);
+      aiAppendMsg('assistant', `✓ Rapport "${d.name}" enregistré avec succès ! Retrouvez-le dans la page Rapports.`);
+    }
+
+    btn.classList.remove('ready');
+    btn.title = 'Générez d\'abord une configuration via le chat';
+    aiLastConfig = null;
+  } catch(e) {
+    aiAppendMsg('assistant', 'Erreur enregistrement : ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✓ Valider et enregistrer';
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,236 @@
+[
+  {
+    "id": "moa1zp3kwiw9",
+    "createdAt": "2026-04-22T12:53:13.040Z",
+    "widgets": [
+      {
+        "title": "",
+        "source": "_auto",
+        "params": {
+          "filters": [
+            {
+              "dimId": "custom_articles_artisactif",
+              "op": "=",
+              "val": "O",
+              "val2": ""
+            }
+          ],
+          "periode_debut": "cal:2026"
+        },
+        "measures": [
+          "ca",
+          "marge_af_prmp"
+        ],
+        "ruptures": [
+          "art_famille"
+        ],
+        "pivotCols": [
+          "time_annee"
+        ],
+        "displayType": "table",
+        "width": "full",
+        "showTotals": "cols",
+        "chartType": "bar",
+        "pivot": true,
+        "dimensions": [
+          "art_famille",
+          "art_ref",
+          "art_designation",
+          "time_annee"
+        ],
+        "detailDims": [
+          "art_ref",
+          "art_designation"
+        ],
+        "chartSeriesBy": "measure",
+        "sortDir": "desc",
+        "topN": 0
+      }
+    ],
+    "name": "CA et Marge par marque",
+    "description": "",
+    "recipients": "",
+    "schedule": {
+      "enabled": false,
+      "cron": "",
+      "recipients": ""
+    },
+    "groups": [
+      "*"
+    ],
+    "dbs": "default",
+    "updatedAt": "2026-05-01T15:08:42.059Z",
+    "schedules": [
+      {
+        "id": "sgftdg9",
+        "enabled": true,
+        "label": "tous les jours",
+        "cron": "0 8 * * 1-5",
+        "recipients": ""
+      }
+    ]
+  },
+  {
+    "id": "modc3p1f0dgj",
+    "createdAt": "2026-04-24T19:59:34.275Z",
+    "widgets": [
+      {
+        "title": "",
+        "source": "_auto",
+        "params": {
+          "filters": [],
+          "periode_debut": "cal:2026"
+        },
+        "measures": [
+          "ach_montant"
+        ],
+        "ruptures": [
+          "art_marque"
+        ],
+        "pivotCols": [
+          "time_annee"
+        ],
+        "detailDims": [
+          "art_ref",
+          "art_ref_design"
+        ],
+        "pivot": true,
+        "displayType": "table",
+        "width": "full",
+        "showTotals": false,
+        "chartType": "bar",
+        "chartSeriesBy": "measure",
+        "sortDir": "desc",
+        "topN": 0,
+        "dimensions": [
+          "art_marque",
+          "art_ref",
+          "art_ref_design",
+          "time_annee"
+        ]
+      }
+    ],
+    "name": "ACHAT par MARQUE",
+    "description": "",
+    "recipients": "",
+    "schedules": [],
+    "groups": [
+      "*"
+    ],
+    "dbs": "default",
+    "updatedAt": "2026-04-24T20:22:51.743Z"
+  },
+  {
+    "id": "moqgqey5l7a2",
+    "createdAt": "2026-05-03T00:00:00.000Z",
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "name": "CA Branche VITO",
+    "description": "CA HT par client × année × mois — la branche est modifiable depuis la barre de filtres du viewer",
+    "recipients": "",
+    "schedules": [],
+    "groups": [
+      "*"
+    ],
+    "dbs": "default",
+    "widgets": [
+      {
+        "title": "CA Branche VITO",
+        "source": "_auto",
+        "displayType": "table",
+        "width": "full",
+        "pivot": true,
+        "showTotals": "both",
+        "sortDir": "desc",
+        "topN": 0,
+        "chartType": "bar",
+        "chartSeriesBy": "measure",
+        "params": {
+          "periode_debut": "2023",
+          "periode_fin": "ytd",
+          "filters": [
+            { "dimId": "cli_branche", "op": "=", "val": "VITO", "val2": "" }
+          ]
+        },
+        "measures": [
+          "ca"
+        ],
+        "dimensions": [
+          "cli_code",
+          "cli_nom",
+          "time_annee",
+          "time_mois_lib"
+        ],
+        "ruptures": [
+          "cli_nom"
+        ],
+        "detailDims": [
+          "cli_code",
+          "time_annee"
+        ],
+        "pivotCols": [
+          "time_mois_lib"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "moqgqeyh71ju",
+    "createdAt": "2026-05-03T00:00:00.000Z",
+    "updatedAt": "2026-05-03T00:00:00.000Z",
+    "name": "CA Branche FABRE par nature produit",
+    "description": "CA HT + Quantité par client × année × nature × article × mois — la branche est modifiable depuis la barre de filtres du viewer",
+    "recipients": "",
+    "schedules": [],
+    "groups": [
+      "*"
+    ],
+    "dbs": "default",
+    "widgets": [
+      {
+        "title": "CA Branche FABRE par nature produit",
+        "source": "_auto",
+        "displayType": "table",
+        "width": "full",
+        "pivot": true,
+        "showTotals": "both",
+        "sortDir": "desc",
+        "topN": 0,
+        "chartType": "bar",
+        "chartSeriesBy": "measure",
+        "params": {
+          "periode_debut": "2023",
+          "periode_fin": "ytd",
+          "filters": [
+            { "dimId": "cli_branche", "op": "=", "val": "FABRE", "val2": "" }
+          ]
+        },
+        "measures": [
+          "qte",
+          "ca"
+        ],
+        "dimensions": [
+          "cli_code",
+          "cli_nom",
+          "time_annee",
+          "art_nature",
+          "art_ref",
+          "art_designation",
+          "time_mois_lib"
+        ],
+        "ruptures": [
+          "cli_nom",
+          "time_annee",
+          "art_nature"
+        ],
+        "detailDims": [
+          "cli_code",
+          "art_ref",
+          "art_designation"
+        ],
+        "pivotCols": [
+          "time_mois_lib"
+        ]
+      }
+    ]
+  }
+]

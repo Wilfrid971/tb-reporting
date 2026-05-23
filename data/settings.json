@@ -1,0 +1,59 @@
+{
+  "db": {
+    "type": "sqlserver",
+    "server": "",
+    "database": "",
+    "port": 1433,
+    "trusted": false,
+    "user": "",
+    "password": "",
+    "encrypt": false,
+    "trustCert": true
+  },
+  "as400": {
+    "host": "",
+    "database": "",
+    "user": "",
+    "password": "",
+    "port": 446,
+    "ssl": false,
+    "driver": "IBM i Access ODBC Driver"
+  },
+  "smtp": {
+    "preset": "gmail",
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "secure": false,
+    "user": "reporting.impec@gmail.com",
+    "password": "mqac rolp jpoz zcqh",
+    "from": "RAPPORTS IMPEC"
+  },
+  "theme": {
+    "name": "dark"
+  },
+  "app": {
+    "dateFormat": "DD/MM/YYYY"
+  },
+  "calcul": {
+    "pr": "PLVLASTPR",
+    "mg": "af"
+  },
+  "periodes": {
+    "nbExercices": 5,
+    "nbAnneesCal": 5
+  },
+  "loginDatabases": [
+    {
+      "name": "CAISSETEST",
+      "alias": "CAISSETEST"
+    },
+    {
+      "name": "CDI",
+      "alias": "CDI"
+    },
+    {
+      "name": "CDITEST",
+      "alias": "CDITEST"
+    }
+  ]
+}

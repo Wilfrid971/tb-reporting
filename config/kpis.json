@@ -1,0 +1,69 @@
+{
+  "source": "wavesoft",
+  "refresh_interval_seconds": 300,
+  "kpis": [
+    {
+      "id": "ca_jour",
+      "label": "CA Aujourd'hui",
+      "type": "value",
+      "unit": "€",
+      "format": "currency",
+      "color": "#4CAF50",
+      "query": "SELECT ISNULL(SUM(ABS(pv.PCVMNTHT) * pn.PINSENSSTATISTIQUE), 0) AS valeur FROM PIECEVENTES pv JOIN PIECE_NATURE pn ON pn.PINID = pv.PINID WHERE pn.PITCODE = 'F' AND pn.PINSENSSTATISTIQUE <> 0 AND CONVERT(DATE, pv.PCVDATEEFFET) = CONVERT(DATE, GETDATE())"
+    },
+    {
+      "id": "ca_mois",
+      "label": "CA Mois en cours",
+      "type": "value",
+      "unit": "€",
+      "format": "currency",
+      "color": "#2196F3",
+      "query": "SELECT ISNULL(SUM(ABS(pv.PCVMNTHT) * pn.PINSENSSTATISTIQUE), 0) AS valeur FROM PIECEVENTES pv JOIN PIECE_NATURE pn ON pn.PINID = pv.PINID WHERE pn.PITCODE = 'F' AND pn.PINSENSSTATISTIQUE <> 0 AND YEAR(pv.PCVDATEEFFET) = YEAR(GETDATE()) AND MONTH(pv.PCVDATEEFFET) = MONTH(GETDATE())"
+    },
+    {
+      "id": "nb_commandes_jour",
+      "label": "Factures du jour",
+      "type": "value",
+      "unit": "",
+      "format": "integer",
+      "color": "#FF9800",
+      "query": "SELECT COUNT(*) AS valeur FROM PIECEVENTES pv JOIN PIECE_NATURE pn ON pn.PINID = pv.PINID WHERE pn.PITCODE = 'F' AND pn.PINSENSSTATISTIQUE = 1 AND CONVERT(DATE, pv.PCVDATEEFFET) = CONVERT(DATE, GETDATE())"
+    },
+    {
+      "id": "nb_clients_actifs",
+      "label": "Clients actifs (30j)",
+      "type": "value",
+      "unit": "",
+      "format": "integer",
+      "color": "#9C27B0",
+      "query": "SELECT COUNT(DISTINCT pv.TIRID) AS valeur FROM PIECEVENTES pv JOIN PIECE_NATURE pn ON pn.PINID = pv.PINID WHERE pn.PITCODE = 'F' AND pn.PINSENSSTATISTIQUE = 1 AND pv.PCVDATEEFFET >= DATEADD(DAY, -30, GETDATE())"
+    },
+    {
+      "id": "ca_12mois",
+      "label": "CA 12 derniers mois",
+      "type": "chart_bar",
+      "unit": "€",
+      "format": "currency",
+      "color": "#2196F3",
+      "query": "SELECT FORMAT(pv.PCVDATEEFFET, 'yyyy-MM') AS label, ISNULL(SUM(ABS(pv.PCVMNTHT) * pn.PINSENSSTATISTIQUE), 0) AS valeur FROM PIECEVENTES pv JOIN PIECE_NATURE pn ON pn.PINID = pv.PINID WHERE pn.PITCODE = 'F' AND pn.PINSENSSTATISTIQUE <> 0 AND pv.PCVDATEEFFET >= DATEADD(MONTH, -11, DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)) GROUP BY FORMAT(pv.PCVDATEEFFET, 'yyyy-MM') ORDER BY label"
+    },
+    {
+      "id": "top10_clients",
+      "label": "Top 10 clients (mois)",
+      "type": "chart_bar_horizontal",
+      "unit": "€",
+      "format": "currency",
+      "color": "#4CAF50",
+      "query": "SELECT TOP 10 t.TIRSOCIETE AS label, ISNULL(SUM(ABS(pv.PCVMNTHT) * pn.PINSENSSTATISTIQUE), 0) AS valeur FROM PIECEVENTES pv JOIN PIECE_NATURE pn ON pn.PINID = pv.PINID JOIN TIERS t ON t.TIRID = pv.TIRID WHERE pn.PITCODE = 'F' AND pn.PINSENSSTATISTIQUE = 1 AND YEAR(pv.PCVDATEEFFET) = YEAR(GETDATE()) AND MONTH(pv.PCVDATEEFFET) = MONTH(GETDATE()) GROUP BY t.TIRID, t.TIRSOCIETE ORDER BY valeur DESC"
+    },
+    {
+      "id": "commandes_mobile",
+      "label": "Commandes mobile (non traitées)",
+      "type": "value",
+      "unit": "",
+      "format": "integer",
+      "color": "#F44336",
+      "query": "SELECT COUNT(*) AS valeur FROM EXT_APP_COMMANDES WHERE TRAITE = 'N'"
+    }
+  ]
+}

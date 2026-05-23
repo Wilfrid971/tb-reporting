@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Objectifs — TB Reporting</title>
+  <script src="/auth-client.js"></script>
+  <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
+  <script src="/theme.js"></script>
+  <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
+      --text:#e2e8f0; --text-muted:#8892a4;
+      --green:#4CAF50; --orange:#FF9800; --red:#F44336; --blue:#2196F3; --purple:#9C27B0;
+      --radius:12px; --gap:12px;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+    html.embedded header{display:none}
+    header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
+      position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    header h1{font-size:1rem;font-weight:600;margin-right:8px;white-space:nowrap}
+    .filters{display:flex;flex-wrap:wrap;gap:8px;flex:1}
+    .filters select{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer;max-width:300px}
+    .header-right{display:flex;align-items:center;gap:10px}
+    #status-dot{width:9px;height:9px;border-radius:50%;background:#666}
+    #status-dot.ok{background:var(--green)} #status-dot.error{background:var(--red)}
+    #last-update{font-size:.72rem;color:var(--text-muted);white-space:nowrap}
+    #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer}
+    #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
+    .container{padding:var(--gap);max-width:1400px;margin:0 auto}
+    .err-banner{background:#2a1a1a;border:1px solid var(--red);border-radius:var(--radius);
+      padding:10px 14px;color:var(--red);font-size:.85rem;margin-bottom:var(--gap);display:none}
+    .empty-state{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:30px;text-align:center;color:var(--text-muted);font-size:.85rem;line-height:1.6}
+
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+    .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:14px;border-left:4px solid var(--blue)}
+    .kpi-card.realise{border-left-color:var(--green)}
+    .kpi-card.objectif{border-left-color:var(--blue)}
+    .kpi-card.ratio{border-left-color:var(--purple)}
+    .kpi-card.ecart{border-left-color:var(--orange)}
+    .kpi-card.forecast{border-left-color:var(--purple);border-left-style:dashed}
+    .kpi-label{font-size:.68rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+    .kpi-value{font-size:1.4rem;font-weight:700;line-height:1.1}
+    .kpi-sub{font-size:.7rem;color:var(--text-muted);margin-top:4px}
+
+    .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:14px 16px;margin-bottom:var(--gap)}
+    .chart-card h3{font-size:.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
+    .chart-card .canvas-wrap{position:relative;height:340px}
+
+    .table-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+      padding:14px 16px;margin-bottom:var(--gap)}
+    .table-card h3{font-size:.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+    table.tobj{width:100%;border-collapse:collapse;font-size:.78rem}
+    table.tobj th,table.tobj td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:right}
+    table.tobj th{background:var(--surface2);color:var(--text-muted);font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
+    table.tobj th.lbl,table.tobj td.lbl{text-align:left;color:var(--text);font-weight:500}
+    table.tobj tr.total td{background:var(--surface2);font-weight:600;color:var(--blue);border-top:2px solid var(--blue);border-bottom:none}
+    table.tobj td.pct{font-weight:600;width:70px}
+    .pct-good{color:var(--green)} .pct-mid{color:var(--orange)} .pct-bad{color:var(--red)}
+    .bar-cell{width:120px;padding:0 6px !important}
+    .bar-wrap{position:relative;height:8px;background:var(--surface2);border-radius:3px;overflow:hidden}
+    .bar-fill{position:absolute;left:0;top:0;bottom:0;border-radius:3px}
+
+    .header-link{color:var(--text-muted);font-size:.78rem;text-decoration:none;padding:4px 8px;
+      border:1px solid var(--border);border-radius:6px;white-space:nowrap}
+  </style>
+  <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
+</head>
+<body>
+<header>
+  <h1>🎯 Objectifs<span id="header-context" style="margin-left:10px;font-size:.78rem;font-weight:500;color:var(--text-muted)"></span></h1>
+  <a href="/dashboard.html"   class="header-link">📊 Tableaux de bord & Rapports</a>
+  <a href="/tb-reporting.html" class="header-link">📈 TB Reporting</a>
+  <a href="/backoffice.html"   class="header-link">⚙️ Backoffice</a>
+  <div class="header-right">
+    <span id="status-dot"></span>
+    <span id="last-update"></span>
+    <button onclick="AUTH.logout()" style="background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:4px 10px;font-size:.75rem;cursor:pointer">Déconnexion</button>
+  </div>
+</header>
+
+<div class="container">
+  <!-- Barre filtres (toujours visible, même en embed iframe) -->
+  <div class="filters" style="margin-bottom:var(--gap);display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <label style="font-size:.78rem;color:var(--text-muted)">Configuration :</label>
+    <select id="sel-objectif" onchange="onObjectifChange()" title="Configuration d'objectifs"></select>
+    <select id="sel-conn" onchange="onConnChange()" title="Source / connexion"></select>
+    <button id="refresh-btn" onclick="loadData()">↻ Actualiser</button>
+    <span style="display:inline-flex;align-items:center;gap:6px;margin-left:14px;padding:4px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px"
+          title="Simulation : multiplie l'objectif sans modifier la config sauvegardée">
+      <span style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em">Sim. obj</span>
+      <input type="range" id="sim-coef" min="50" max="150" step="5" value="100"
+             oninput="onSimCoefChange()" style="width:120px;vertical-align:middle;cursor:pointer">
+      <span id="sim-coef-label" style="font-size:.78rem;color:var(--text-muted);min-width:46px;text-align:right;font-weight:600">100 %</span>
+      <button onclick="resetSimCoef()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;padding:0 4px;font-size:.9rem"
+              title="Réinitialiser à 100 %">↺</button>
+    </span>
+    <span id="period-label" style="font-size:.75rem;color:var(--text-muted);margin-left:auto"></span>
+  </div>
+
+  <div class="err-banner" id="err-banner"></div>
+
+  <div id="empty-objectifs" class="empty-state" style="display:none">
+    Aucune configuration d'objectifs. Allez dans le <a href="/backoffice.html" style="color:var(--blue)">Backoffice</a> &gt; onglet 🎯 pour en créer une.
+  </div>
+
+  <div id="report-content" style="display:none">
+    <!-- KPIs -->
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="kpi-card realise">
+        <div class="kpi-label">CA réalisé (cumulé)</div>
+        <div class="kpi-value" id="kpi-realise">—</div>
+        <div class="kpi-sub" id="kpi-realise-sub"></div>
+      </div>
+      <div class="kpi-card objectif">
+        <div class="kpi-label">Objectif (cumulé YTD)</div>
+        <div class="kpi-value" id="kpi-objectif">—</div>
+        <div class="kpi-sub" id="kpi-objectif-sub"></div>
+      </div>
+      <div class="kpi-card ratio">
+        <div class="kpi-label">% atteint</div>
+        <div class="kpi-value" id="kpi-pct">—</div>
+        <div class="kpi-sub" id="kpi-pct-sub"></div>
+      </div>
+      <div class="kpi-card ecart">
+        <div class="kpi-label">Écart €</div>
+        <div class="kpi-value" id="kpi-ecart">—</div>
+        <div class="kpi-sub" id="kpi-ecart-sub"></div>
+      </div>
+      <div class="kpi-card forecast" title="Projection en fin de période basée sur la régression linéaire des mois écoulés">
+        <div class="kpi-label">Projection annuelle (tendance)</div>
+        <div class="kpi-value" id="kpi-forecast">—</div>
+        <div class="kpi-sub" id="kpi-forecast-sub"></div>
+      </div>
+    </div>
+
+    <!-- Chart cumulé -->
+    <div class="chart-card" id="chart-cumul-card">
+      <h3>Évolution cumulée — Objectif vs Réalisé</h3>
+      <div class="canvas-wrap"><canvas id="chart-cumul"></canvas></div>
+    </div>
+
+    <!-- Tables : commerciaux, dim client, dim article -->
+    <div class="table-card" id="tab-commerciaux"><h3>Par commercial</h3><div id="tab-commerciaux-body"></div></div>
+    <div class="table-card" id="tab-clientdim"><h3 id="tab-clientdim-title">Par dimension client</h3><div id="tab-clientdim-body"></div></div>
+    <div class="table-card" id="tab-articledim"><h3 id="tab-articledim-title">Par dimension article</h3><div id="tab-articledim-body"></div></div>
+  </div>
+</div>
+
+<script>
+const API = '/api/commercial';
+const MOIS_LBL = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+// Libellés conviviaux des dimensions (cohérent avec segmentation.html)
+const DIM_LABELS = {
+  TIRCATEGORIE:'Catégorie', TIRACTIVITE:'Activité', TIRGEO:'Zone géo',
+  TIRBRANCHE:'Branche', TIRENSEIGNE:'Enseigne', TIRORIGINE:'Origine',
+  TIRCIBLE1:'Cible 1', TIRCIBLE2:'Cible 2',
+  ARTFAMILLE:'Famille', ARTSOUSFAMILLE:'Sous-famille', ARTCATEGORIE:'Catégorie article',
+  ARTNATURE:'Nature', ARTCOLLECTION:'Collection', ARTMARQUE:'Marque', ARTCLASSE:'Classe'
+};
+function dimLbl(d) { return DIM_LABELS[d] || d; }
+let allObjectifs = [];
+let currentObjectifId = '';
+let currentConnId = '';
+let allConnections = [];
+let charts = {};
+let lastData = null;
+let simCoef = 1;
+
+function qs(id) { return document.getElementById(id); }
+function fmt(n, dec=0) {
+  if (n === null || n === undefined || isNaN(+n)) return '—';
+  return new Intl.NumberFormat('fr-FR', { minimumFractionDigits:dec, maximumFractionDigits:dec }).format(+n);
+}
+const INDICATOR_META = {
+  CAHT:    { label: 'CA HT',      short: 'CA',     unit: '€',       isCurrency: true  },
+  QTE:     { label: 'Quantité',   short: 'Qté',    unit: '',        isCurrency: false },
+  CARTONS: { label: 'Nb cartons', short: 'Cartons',unit: 'cartons', isCurrency: false },
+  MGSF:    { label: 'Marge SF',   short: 'Marge',  unit: '€',       isCurrency: true  },
+  MGAF:    { label: 'Marge AF',   short: 'Marge',  unit: '€',       isCurrency: true  },
+};
+let currentIndicator = 'CAHT';
+function indMeta() { return INDICATOR_META[currentIndicator] || INDICATOR_META.CAHT; }
+function unitSuffix() { return indMeta().unit ? ' ' + indMeta().unit : ''; }
+function fmtVal(n) {
+  const m = indMeta();
+  if (n === null || n === undefined || isNaN(+n)) return '—';
+  return fmt(n) + (m.unit ? ' ' + m.unit : '');
+}
+// Compat ancien nom — désormais redirige vers fmtVal pour suivre l'indicateur courant
+function fmtEuro(n) { return fmtVal(n); }
+function fmtPct(p) { return p === null || p === undefined ? '—' : fmt(p, 1) + ' %'; }
+function escH(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function pctClass(p) { return p >= 95 ? 'pct-good' : p >= 80 ? 'pct-mid' : 'pct-bad'; }
+function pctColor(p) { return p >= 95 ? 'var(--green)' : p >= 80 ? 'var(--orange)' : 'var(--red)'; }
+
+// Mois libellés selon dateDebut (ex: pour exercice oct→sep, mois1=Oct..mois12=Sep)
+function monthHeaders(dateDebut) {
+  if (!dateDebut) return MOIS_LBL.slice();
+  const startM = parseInt(dateDebut.slice(5, 7)) - 1;
+  return Array.from({ length: 12 }, (_, i) => MOIS_LBL[(startM + i) % 12]);
+}
+
+function sumArr(a) { return (a || []).reduce((s, v) => s + (parseFloat(v) || 0), 0); }
+function cumulArr(a) { let acc = 0; return (a || []).map(v => { acc += parseFloat(v) || 0; return acc; }); }
+
+// Régression linéaire ordinaire sur les n premières valeurs (x = 1..n).
+// Renvoie { slope, intercept } ou null si pas assez de points.
+function linearTrend(values, n) {
+  if (!Array.isArray(values) || n < 2) return null;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0, k = 0;
+  for (let i = 0; i < n && i < values.length; i++) {
+    const x = i + 1, y = parseFloat(values[i]) || 0;
+    sx += x; sy += y; sxx += x * x; sxy += x * y; k++;
+  }
+  if (k < 2) return null;
+  const denom = k * sxx - sx * sx;
+  if (denom === 0) return null;
+  const slope = (k * sxy - sx * sy) / denom;
+  const intercept = (sy - slope * sx) / k;
+  return { slope, intercept };
+}
+
+// Construit un tableau mensuel projeté : valeurs réelles pour les mois 1..curIdx,
+// projection (tendance linéaire, plancher à 0) pour les mois curIdx+1..12.
+// curIdx === 0 → tout est null (pas de période entamée).
+// curIdx === 1 → la valeur observée est répliquée (slope = 0, intercept = realise[0]).
+function forecastMonthly(realArr, curIdx) {
+  const out = Array(12).fill(null);
+  if (curIdx <= 0) return out;
+  for (let i = 0; i < curIdx && i < 12; i++) out[i] = parseFloat(realArr[i]) || 0;
+  if (curIdx >= 12) return out;
+  const trend = linearTrend(realArr, curIdx);
+  if (!trend) {
+    // Une seule valeur — réplique la dernière valeur observée
+    const last = curIdx > 0 ? (parseFloat(realArr[curIdx - 1]) || 0) : 0;
+    for (let i = curIdx; i < 12; i++) out[i] = Math.max(0, last);
+    return out;
+  }
+  for (let i = curIdx; i < 12; i++) {
+    const projected = trend.slope * (i + 1) + trend.intercept;
+    out[i] = Math.max(0, projected);
+  }
+  return out;
+}
+
+// Avancement de la période : nb de mois entièrement clos + fraction du mois en cours.
+// Renvoie { idxClos, fraction, idxOpen } où :
+//   idxClos = nombre de mois 100 % terminés (0..12)
+//   fraction = part écoulée du mois en cours (0..1, 0 si avant période ou après)
+//   idxOpen = idxClos + 1 capé à 12 — index du mois courant pour les sums "jusqu'à aujourd'hui"
+function periodProgress(dateDebut, dateFin) {
+  if (!dateDebut || !dateFin) return { idxClos: 12, fraction: 0, idxOpen: 12 };
+  const today = new Date();
+  const d0 = new Date(dateDebut + 'T00:00:00');
+  const d1 = new Date(dateFin   + 'T23:59:59');
+  if (today < d0) return { idxClos: 0, fraction: 0, idxOpen: 0 };
+  if (today > d1) return { idxClos: 12, fraction: 0, idxOpen: 12 };
+  const monthsClos = (today.getFullYear() - d0.getFullYear()) * 12 + (today.getMonth() - d0.getMonth());
+  const idxClos = Math.max(0, Math.min(12, monthsClos));
+  const dim = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const fraction = today.getDate() / dim;
+  return { idxClos, fraction, idxOpen: Math.min(12, idxClos + 1) };
+}
+
+// Compat — index du mois "ouvert" (mois en cours inclus). Conservé pour le réalisé YTD.
+function currentMonthIdx(dateDebut, dateFin) {
+  return periodProgress(dateDebut, dateFin).idxOpen;
+}
+
+// Objectif YTD avec prorata : mois clos pleins + objectif du mois en cours × fraction écoulée.
+function objYtdProrata(objArr, prog) {
+  if (!objArr || !prog) return 0;
+  const full = objArr.slice(0, prog.idxClos).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+  const cur  = prog.idxClos < 12 ? (parseFloat(objArr[prog.idxClos]) || 0) * prog.fraction : 0;
+  return full + cur;
+}
+
+// ── Connexion ──────────────────────────────────────────────────────────────
+async function loadConnectionsList() {
+  try {
+    allConnections = await fetch('/api/settings/connections').then(r => r.ok ? r.json() : []);
+  } catch { allConnections = []; }
+  const sel = qs('sel-conn');
+  const u = AUTH.getUser();
+  const principalLabel = u?.societe || u?.database || 'Défaut';
+  let html = `<option value="">${escH(principalLabel)}</option>`;
+  if (allConnections.length) html += allConnections.map(c => `<option value="${escH(c.id)}">${escH(c.label || c.id)}</option>`).join('');
+  sel.innerHTML = html;
+  sel.value = currentConnId;
+}
+
+function onConnChange() { currentConnId = qs('sel-conn').value || ''; loadData(); }
+
+// ── Chargement liste objectifs ─────────────────────────────────────────────
+async function loadObjectifs() {
+  try {
+    const raw = await fetch(`${API}/objectifs`).then(r => r.json());
+    // Filtrage par groupes autorisés (groups=['*'] = tout le monde, sinon doit contenir le groupe utilisateur)
+    const userGroup = AUTH.getUser()?.group || null;
+    allObjectifs = (Array.isArray(raw) ? raw : []).filter(o => {
+      const g = o.groups;
+      if (!Array.isArray(g) || !g.length || g.includes('*')) return true;
+      return userGroup && g.includes(userGroup);
+    });
+  } catch { allObjectifs = []; }
+  const sel = qs('sel-objectif');
+  if (!Array.isArray(allObjectifs) || !allObjectifs.length) {
+    sel.innerHTML = '<option value="">— Aucune config —</option>';
+    qs('empty-objectifs').style.display = 'block';
+    qs('report-content').style.display = 'none';
+    return;
+  }
+  qs('empty-objectifs').style.display = 'none';
+  qs('report-content').style.display = 'block';
+  sel.innerHTML = allObjectifs.map(o => {
+    const period = o.type === 'exercice' && o.dateDebut && o.dateFin
+      ? `Exercice ${o.dateDebut.slice(0,4)}${o.dateDebut.slice(0,4) !== o.dateFin.slice(0,4) ? '/' + o.dateFin.slice(0,4) : ''}`
+      : `Année ${o.dateDebut?.slice(0,4) || '?'}`;
+    return `<option value="${escH(o.id)}">${escH(o.label)} (${period})</option>`;
+  }).join('');
+  // URL ?objectif=X prend priorité, sinon URL embed param via dashboard
+  const urlObj = new URLSearchParams(location.search).get('objectif');
+  if (urlObj && allObjectifs.find(o => o.id === urlObj)) currentObjectifId = urlObj;
+  else if (!currentObjectifId) currentObjectifId = allObjectifs[0].id;
+  sel.value = currentObjectifId;
+}
+
+function onObjectifChange() { currentObjectifId = qs('sel-objectif').value; loadData(); }
+
+// ── Simulation d'objectif ───────────────────────────────────────────────────
+// Multiplie tous les objectifs par simCoef pour faire varier % atteint et tendance
+// sans toucher au JSON serveur. Re-render à partir de lastData (pas de nouvelle requête).
+function applySimCoef(data, coef) {
+  if (!data || coef === 1) return data;
+  const scale = arr => Array.isArray(arr) ? arr.map(v => (parseFloat(v) || 0) * coef) : arr;
+  const clone = JSON.parse(JSON.stringify(data));
+  if (clone.global?.objectif) clone.global.objectif = scale(clone.global.objectif);
+  ['commerciaux', 'clientDim', 'articleDim'].forEach(k => {
+    if (Array.isArray(clone[k])) clone[k].forEach(row => {
+      if (row.objectif) row.objectif = scale(row.objectif);
+      if (Array.isArray(row.articles)) row.articles.forEach(a => { if (a.objectif) a.objectif = scale(a.objectif); });
+    });
+  });
+  return clone;
+}
+
+function onSimCoefChange() {
+  simCoef = parseFloat(qs('sim-coef').value) / 100;
+  const lbl = qs('sim-coef-label');
+  lbl.textContent = Math.round(simCoef * 100) + ' %';
+  lbl.style.color = simCoef === 1 ? 'var(--text-muted)' : 'var(--orange)';
+  if (lastData) renderAll(applySimCoef(lastData, simCoef));
+}
+
+function resetSimCoef() {
+  qs('sim-coef').value = 100;
+  onSimCoefChange();
+}
+
+// ── Chargement réalisation + rendu ─────────────────────────────────────────
+async function loadData() {
+  if (!currentObjectifId) return;
+  const btn = qs('refresh-btn'), dot = qs('status-dot'), banner = qs('err-banner');
+  btn.disabled = true; btn.textContent = '…';
+  banner.style.display = 'none';
+  try {
+    const params = new URLSearchParams();
+    // Multi-base : si URL contient dbs (transmis depuis le dashboard), on l'utilise ;
+    // sinon, currentConnId si défini.
+    const urlDbs = new URLSearchParams(location.search).get('dbs');
+    if (urlDbs) params.set('dbs', urlDbs);
+    else if (currentConnId) params.set('connId', currentConnId);
+    const data = await fetch(`${API}/objectifs/${encodeURIComponent(currentObjectifId)}/realisation?${params.toString()}`).then(r => r.json());
+    if (data.error) throw new Error(data.error);
+    lastData = data;
+    renderAll(applySimCoef(data, simCoef));
+    dot.className = 'ok';
+    qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
+  } catch (e) {
+    dot.className = 'error';
+    banner.textContent = 'Erreur : ' + e.message;
+    banner.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Actualiser';
+  }
+}
+
+function renderAll(data) {
+  const cfg = data.config;
+  // Indicateur courant (pour les formats et les libellés)
+  currentIndicator = INDICATOR_META[cfg.indicator] ? cfg.indicator : 'CAHT';
+  const m = indMeta();
+  // KPIs : libellés dynamiques selon l'indicateur (+ marqueur de simulation)
+  const simSuffix = simCoef !== 1 ? ` <span style="color:var(--orange);font-weight:600">· sim ×${Math.round(simCoef*100)}%</span>` : '';
+  const kpiLabels = document.querySelectorAll('.kpi-card .kpi-label');
+  if (kpiLabels.length === 4) {
+    kpiLabels[0].textContent = `${m.label} réalisé (cumulé)`;
+    kpiLabels[1].innerHTML = `Objectif (cumulé YTD)${simSuffix}`;
+    kpiLabels[2].innerHTML = `% atteint${simSuffix}`;
+    kpiLabels[3].textContent = `Écart${m.unit ? ' (' + m.unit + ')' : ''}`;
+  }
+  const months = monthHeaders(cfg.dateDebut);
+  const prog = periodProgress(cfg.dateDebut, cfg.dateFin);
+  const curIdx = prog.idxOpen; // mois en cours inclus pour le réalisé
+  // Période affichée
+  const lbl = qs('period-label');
+  if (lbl) {
+    const fmtD = s => { if (!s) return ''; const [y,m,d] = s.split('-'); return `${d}/${m}/${y}`; };
+    const typeLbl = cfg.type === 'exercice' ? 'Exercice fiscal' : 'Année calendaire';
+    const fracPct = Math.round(prog.fraction * 100);
+    const detail = prog.idxClos < 12 && prog.fraction > 0
+      ? ` · ${prog.idxClos} mois clos + ${fracPct} % du suivant`
+      : ` · ${prog.idxClos}/12 mois clos`;
+    lbl.textContent = `${typeLbl} · ${fmtD(cfg.dateDebut)} → ${fmtD(cfg.dateFin)}${detail}`;
+  }
+
+  // ── KPIs ──
+  const objAnn = sumArr(data.global?.objectif);
+  const realCum = sumArr((data.global?.realise || []).slice(0, curIdx));
+  const objYtd = objYtdProrata(data.global?.objectif, prog);
+  const pct = objYtd > 0 ? (realCum / objYtd) * 100 : null;
+  const ecart = realCum - objYtd;
+
+  qs('kpi-realise').textContent = fmtEuro(realCum);
+  qs('kpi-realise-sub').textContent = `Sur ${curIdx} mois écoulés`;
+  qs('kpi-objectif').textContent = fmtEuro(objYtd);
+  // Sous-titre : total annuel + % défini en backoffice (vs N-1) si renseigné
+  const pctGlobalDef = cfg.pctMap?.global;
+  const pctVsN1Txt = (typeof pctGlobalDef === 'number') ? ` · × ${fmt(pctGlobalDef, 0)} % vs N-1` : '';
+  qs('kpi-objectif-sub').textContent = `Total annuel ${fmtEuro(objAnn)}${pctVsN1Txt}`;
+  qs('kpi-pct').textContent = fmtPct(pct);
+  qs('kpi-pct').style.color = pct === null ? 'var(--text)' : pctColor(pct);
+  qs('kpi-pct-sub').textContent = pct === null ? 'Pas d\'objectif' : (pct >= 100 ? 'Objectif dépassé' : 'En cours');
+  qs('kpi-ecart').textContent = (ecart >= 0 ? '+' : '') + fmtEuro(ecart);
+  qs('kpi-ecart').style.color = ecart >= 0 ? 'var(--green)' : 'var(--red)';
+  qs('kpi-ecart-sub').textContent = ecart >= 0 ? 'Au-dessus' : 'En retard';
+
+  // ── Chart cumulé : réalisé cumulé vs objectif cumulé ──
+  const objCumul  = cumulArr(data.global?.objectif || Array(12).fill(0));
+  const realCumul = cumulArr(data.global?.realise  || Array(12).fill(0));
+
+  // ── Projection (tendance) ──
+  // La régression linéaire ne porte que sur les mois clos pour éviter qu'un mois
+  // courant partiel (ex : 3 jours sur 31) tire la pente vers le bas.
+  const realArr = data.global?.realise || Array(12).fill(0);
+  const idxFc = prog.idxClos;
+  const fcMonthly = forecastMonthly(realArr, idxFc);
+  const fcAnn = idxFc > 0 ? sumArr(fcMonthly) : null;
+  const fcCum = cumulArr(fcMonthly.map(v => v ?? 0));
+  const fcPctVsObj = (fcAnn !== null && objAnn > 0) ? (fcAnn / objAnn) * 100 : null;
+  qs('kpi-forecast').textContent = fcAnn === null ? '—' : fmtEuro(fcAnn);
+  qs('kpi-forecast-sub').textContent = fcAnn === null
+    ? 'Période non entamée'
+    : (curIdx >= 12 ? 'Période terminée' : `${fmtPct(fcPctVsObj)} de l'objectif annuel`);
+  if (fcAnn !== null && fcPctVsObj !== null) qs('kpi-forecast').style.color = pctColor(fcPctVsObj);
+
+  // ── Construction des séries pour le chart, avec point "Aujourd'hui" intercalé ──
+  // Si on est dans un mois en cours (idxClos < 12 et fraction > 0), on insère un
+  // label intermédiaire à la position idxClos pour que la courbe Réalisé s'arrête
+  // au jour réel (et non à la fin du mois en cours), et que la projection y démarre.
+  let chartLabels, chartObj, chartReal, chartFc;
+  if (prog.idxClos > 0 && prog.idxClos < 12 && prog.fraction > 0) {
+    const today = new Date();
+    const todayLbl = `${today.getDate()}/${today.getMonth() + 1}`;
+    const realYtd = sumArr(realArr.slice(0, prog.idxOpen)); // = realCumul[idxClos]
+    chartLabels = [...months.slice(0, prog.idxClos), todayLbl, ...months.slice(prog.idxClos)];
+    chartObj    = [...objCumul.slice(0, prog.idxClos), objYtd, ...objCumul.slice(prog.idxClos)];
+    chartReal   = [...realCumul.slice(0, prog.idxClos), realYtd, ...Array(12 - prog.idxClos).fill(null)];
+    chartFc     = [...Array(prog.idxClos).fill(null), realYtd, ...fcCum.slice(prog.idxClos)];
+  } else {
+    chartLabels = months;
+    chartObj    = objCumul;
+    chartReal   = realCumul.map((v, i) => i < curIdx ? v : null);
+    chartFc     = idxFc > 0 && idxFc < 12
+      ? fcCum.map((v, i) => i < idxFc - 1 ? null : v)
+      : Array(12).fill(null);
+  }
+
+  const ctx = qs('chart-cumul').getContext('2d');
+  if (charts.cumul) charts.cumul.destroy();
+  charts.cumul = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: chartLabels,
+      datasets: [
+        { label: 'Objectif cumulé', data: chartObj,
+          borderColor: '#2196F3', backgroundColor: 'rgba(33,150,243,.15)', fill: true, tension: .25, pointRadius: 3 },
+        { label: 'Réalisé cumulé', data: chartReal,
+          borderColor: '#4CAF50', backgroundColor: 'rgba(76,175,80,.15)', fill: true, tension: .25, pointRadius: 3, spanGaps: false },
+        { label: 'Projection (tendance)', data: chartFc,
+          borderColor: '#9C27B0', backgroundColor: 'rgba(156,39,176,.05)', borderDash: [6, 4], fill: false, tension: .25, pointRadius: 2, spanGaps: false },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label} : ${fmtEuro(ctx.raw || 0)}` } }
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#8892a4', callback: v => fmt(v) + unitSuffix() }, grid: { color: '#2a2d3e' } }
+      }
+    }
+  });
+
+  // ── Portée : on masque les blocs non concernés ──
+  const scope = ['global','commercial','both'].includes(cfg.scope) ? cfg.scope : 'both';
+  const showGlobal = scope === 'global' || scope === 'both';
+  const showComm   = scope === 'commercial' || scope === 'both';
+  qs('kpi-grid').style.display        = showGlobal ? '' : 'none';
+  qs('chart-cumul-card').style.display = showGlobal ? '' : 'none';
+
+  // ── Tables ──
+  // pctMap : pourcentages d'objectif (vs N-1) saisis en backoffice — affichés en lecture seule
+  const pctMap = cfg.pctMap || {};
+  // Expander commerciaux : sous-tables clientDim / articleDim définies via dimClientComm / dimArticleComm
+  // Pour articleDim, on passe un expander qui déplie le détail article du commercial
+  const commExpand = (row, p) => {
+    let html = '';
+    if (Array.isArray(row.clientDim) && row.clientDim.length && cfg.dimClientComm) {
+      html += `<div style="font-size:.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;padding:8px 12px 4px">Par ${escH(dimLbl(cfg.dimClientComm))}</div>`;
+      html += renderInlineSubTable(row.clientDim, dimLbl(cfg.dimClientComm), p);
+    }
+    if (Array.isArray(row.articleDim) && row.articleDim.length && cfg.dimArticleComm) {
+      html += `<div style="font-size:.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;padding:8px 12px 4px">Par ${escH(dimLbl(cfg.dimArticleComm))}</div>`;
+      const articleExpand = (subRow, prog2) => Array.isArray(subRow.articles) && subRow.articles.length
+        ? renderArticlesSubTable(subRow.articles, prog2) : '';
+      html += renderInlineSubTable(row.articleDim, dimLbl(cfg.dimArticleComm), p, articleExpand);
+    }
+    return html;
+  };
+  // Expander dim article : sous-table d'articles (option B)
+  const artExpand = (row, p) => Array.isArray(row.articles) && row.articles.length
+    ? renderArticlesSubTable(row.articles, p) : '';
+
+  // Fallback du %N-1 : valeur héritée du %global pour les lignes sans saisie spécifique
+  const pctGlobalFb = (typeof pctMap.global === 'number') ? pctMap.global : null;
+  if (showComm) {
+    qs('tab-commerciaux').style.display = '';
+    renderBreakdown('tab-commerciaux', data.commerciaux || [], 'Commercial', prog, pctMap.comm, commExpand, pctGlobalFb);
+  } else {
+    qs('tab-commerciaux').style.display = 'none';
+  }
+  if (showGlobal && cfg.dimClient && data.clientDim?.length) {
+    qs('tab-clientdim').style.display = 'block';
+    qs('tab-clientdim-title').textContent = `Par ${dimLbl(cfg.dimClient)}`;
+    renderBreakdown('tab-clientdim', data.clientDim, dimLbl(cfg.dimClient), prog, pctMap.cd, undefined, pctGlobalFb);
+  } else qs('tab-clientdim').style.display = 'none';
+  if (showGlobal && cfg.dimArticle && data.articleDim?.length) {
+    qs('tab-articledim').style.display = 'block';
+    qs('tab-articledim-title').textContent = `Par ${dimLbl(cfg.dimArticle)}`;
+    renderBreakdown('tab-articledim', data.articleDim, dimLbl(cfg.dimArticle), prog, pctMap.ad, artExpand, pctGlobalFb);
+  } else qs('tab-articledim').style.display = 'none';
+}
+
+// Mini-table générique (sans graphique) pour les sous-dimensions par commercial.
+// Support optionnel d'un expander par ligne (ex : détail article par dim sous un commercial).
+function renderInlineSubTable(rows, keyLabel, prog, expandRender) {
+  if (!rows?.length) return '';
+  const curIdx = prog.idxOpen;
+  const lines = rows.map(r => {
+    const objAnnRow  = sumArr(r.objectif);
+    const realCumRow = sumArr((r.realise || []).slice(0, curIdx));
+    const objYtdRow  = objYtdProrata(r.objectif, prog);
+    const pctRow = objYtdRow > 0 ? (realCumRow / objYtdRow) * 100 : null;
+    const ecartRow = realCumRow - objYtdRow;
+    const realAnn  = sumArr(r.realise);
+    return { ...r, objAnnRow, realCumRow, objYtdRow, pctRow, ecartRow, realAnn };
+  }).sort((a, b) => (b.realAnn || 0) - (a.realAnn || 0));
+  const totObj    = lines.reduce((s, l) => s + l.objAnnRow,  0);
+  const totObjYtd = lines.reduce((s, l) => s + l.objYtdRow,  0);
+  const totReal   = lines.reduce((s, l) => s + l.realCumRow, 0);
+  const totPct    = totObjYtd > 0 ? (totReal / totObjYtd) * 100 : null;
+  const tableId   = 'isub-' + Math.random().toString(36).slice(2, 9);
+  const rowsHtml  = lines.map((l, idx) => {
+    const pctTxt = l.pctRow === null ? '—' : fmtPct(l.pctRow);
+    const pctCls = l.pctRow === null ? '' : pctClass(l.pctRow);
+    const ecartCls = l.ecartRow >= 0 ? 'pct-good' : 'pct-bad';
+    const subId = `${tableId}-${idx}`;
+    const subContent = expandRender ? expandRender(l, prog) : '';
+    const hasExpand = !!subContent;
+    const arrow = hasExpand
+      ? `<span style="cursor:pointer;display:inline-block;width:14px;color:var(--blue);font-weight:700" onclick="objToggleSub('${subId}', this)">▸</span> `
+      : '';
+    const artCount = Array.isArray(l.articles) ? l.articles.length : 0;
+    const labelSuffix = artCount > 0 ? ` <span style="color:var(--text-muted);font-weight:400;font-size:.7rem">(${artCount} art.)</span>` : '';
+    const mainTr = `<tr>
+      <td class="lbl" style="padding-left:24px;font-size:.72rem">${arrow}${escH(l.label || l.value || l.key)}${labelSuffix}</td>
+      <td>${fmtEuro(l.objAnnRow)}</td>
+      <td>${fmtEuro(l.objYtdRow)}</td>
+      <td>${fmtEuro(l.realCumRow)}</td>
+      <td class="${ecartCls}">${(l.ecartRow >= 0 ? '+' : '') + fmtEuro(l.ecartRow)}</td>
+      <td class="pct ${pctCls}">${pctTxt}</td>
+    </tr>`;
+    const subTr = hasExpand ? `<tr id="${subId}" hidden><td colspan="6" style="padding:0;background:var(--surface);border-bottom:1px solid var(--border)">
+      ${subContent}
+    </td></tr>` : '';
+    return mainTr + subTr;
+  }).join('');
+  return `<table class="tobj" style="font-size:.72rem;margin:0">
+    <thead><tr style="background:var(--surface)">
+      <th class="lbl" style="padding-left:24px">${escH(keyLabel)}</th>
+      <th>Objectif annuel</th>
+      <th>Objectif YTD</th>
+      <th>Réalisé YTD</th>
+      <th>Écart${indMeta().unit ? ' (' + indMeta().unit + ')' : ''}</th>
+      <th>% atteint</th>
+    </tr></thead>
+    <tbody>${rowsHtml}
+      <tr class="total">
+        <td class="lbl" style="padding-left:24px">Total</td>
+        <td>${fmtEuro(totObj)}</td>
+        <td>${fmtEuro(totObjYtd)}</td>
+        <td>${fmtEuro(totReal)}</td>
+        <td>${(totReal - totObjYtd >= 0 ? '+' : '') + fmtEuro(totReal - totObjYtd)}</td>
+        <td>${totPct === null ? '—' : fmtPct(totPct)}</td>
+      </tr>
+    </tbody>
+  </table>`;
+}
+
+// Rend une sous-table d'articles (déclenchée par le ▸ d'une ligne dim article quand articles[] est fourni).
+// Calcule pour chaque article les KPIs YTD (objectif au prorata jour J) + projection tendance.
+function renderArticlesSubTable(articles, prog) {
+  if (!articles?.length) return '<div style="padding:8px 12px;color:var(--text-muted);font-size:.75rem">Aucun article</div>';
+  const curIdx = prog.idxOpen;
+  const lines = articles.map(a => {
+    const objAnn = sumArr(a.objectif);
+    const realAnn = sumArr(a.realise);
+    const realCum = sumArr((a.realise || []).slice(0, curIdx));
+    const objYtd  = objYtdProrata(a.objectif, prog);
+    const pct = objYtd > 0 ? (realCum / objYtd) * 100 : null;
+    const ecart = realCum - objYtd;
+    const trendAnn = prog.idxClos > 0 ? sumArr(forecastMonthly(a.realise || Array(12).fill(0), prog.idxClos)) : 0;
+    return { ...a, objAnn, realAnn, realCum, objYtd, pct, ecart, trendAnn };
+  }).sort((a, b) => (b.realAnn || 0) - (a.realAnn || 0));
+  const rowsHtml = lines.map(l => {
+    const pctTxt = l.pct === null ? '—' : fmtPct(l.pct);
+    const pctCls = l.pct === null ? '' : pctClass(l.pct);
+    const ecartCls = l.ecart >= 0 ? 'pct-good' : 'pct-bad';
+    const rowStyle = l.inactif ? ' style="opacity:.65;font-style:italic"' : '';
+    return `<tr${rowStyle}>
+      <td class="lbl" style="padding-left:24px;font-family:monospace;font-size:.72rem">${escH(l.code || '—')}</td>
+      <td class="lbl" style="font-size:.75rem">${escH(l.designation || '')}</td>
+      <td>${fmtEuro(l.objAnn)}</td>
+      <td>${fmtEuro(l.objYtd)}</td>
+      <td>${fmtEuro(l.realCum)}</td>
+      <td class="${ecartCls}">${(l.ecart >= 0 ? '+' : '') + fmtEuro(l.ecart)}</td>
+      <td class="pct ${pctCls}">${pctTxt}</td>
+      <td>${fmtEuro(l.trendAnn)}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="tobj" style="font-size:.72rem;margin:0">
+    <thead><tr style="background:var(--surface)">
+      <th class="lbl" style="padding-left:24px">Code article</th>
+      <th class="lbl">Désignation</th>
+      <th>Obj. annuel<br><span style="font-size:.65rem;font-weight:400;opacity:.7">(prorata N-1)</span></th>
+      <th>Obj. YTD</th>
+      <th>Réalisé YTD</th>
+      <th>Écart${indMeta().unit ? ' (' + indMeta().unit + ')' : ''}</th>
+      <th>% atteint</th>
+      <th>Tendance ann.</th>
+    </tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>`;
+}
+
+function objToggleSub(subId, arrowEl) {
+  const tr = document.getElementById(subId);
+  if (!tr) return;
+  const isHidden = tr.hasAttribute('hidden');
+  if (isHidden) { tr.removeAttribute('hidden'); if (arrowEl) arrowEl.textContent = '▾'; }
+  else { tr.setAttribute('hidden', ''); if (arrowEl) arrowEl.textContent = '▸'; }
+}
+
+function renderBreakdown(cardId, rows, keyLabel, prog, pctSubMap, expandRender, pctFallback) {
+  const body = qs(cardId + '-body');
+  if (!rows.length) {
+    body.innerHTML = '<div style="color:var(--text-muted);font-size:.82rem;padding:10px 0;text-align:center">Aucune ligne.</div>';
+    return;
+  }
+  const curIdx = prog.idxOpen;
+  // Affiche la colonne %N-1 si au moins une saisie spécifique OU un fallback global
+  const showPctN1 = (pctSubMap && Object.keys(pctSubMap).length > 0) || (typeof pctFallback === 'number');
+  const lines = rows.map(r => {
+    const objAnnRow = sumArr(r.objectif);
+    const realCumRow = sumArr((r.realise || []).slice(0, curIdx));
+    const objYtdRow  = objYtdProrata(r.objectif, prog);
+    const pctRow = objYtdRow > 0 ? (realCumRow / objYtdRow) * 100 : null;
+    const ecartRow = realCumRow - objYtdRow;
+    const realAnn  = sumArr(r.realise);
+    // Projection annuelle par ligne suivant la tendance des mois clos uniquement
+    const trendAnn = prog.idxClos > 0 ? sumArr(forecastMonthly(r.realise || Array(12).fill(0), prog.idxClos)) : 0;
+    const barWidth = pctRow === null ? 0 : Math.min(100, Math.max(0, pctRow));
+    // % d'objectif (vs N-1) : valeur saisie pour cette ligne, sinon fallback global hérité
+    const pctSpecific = pctSubMap ? pctSubMap[String(r.key)] : undefined;
+    const pctN1 = (typeof pctSpecific === 'number') ? pctSpecific : (typeof pctFallback === 'number' ? pctFallback : undefined);
+    const pctInherited = (typeof pctSpecific !== 'number') && (typeof pctFallback === 'number');
+    return { ...r, objAnnRow, realCumRow, objYtdRow, pctRow, ecartRow, realAnn, trendAnn, barWidth, pctN1, pctInherited };
+  }).sort((a, b) => (b.realAnn || 0) - (a.realAnn || 0));
+
+  const totObj  = lines.reduce((s, l) => s + l.objAnnRow,  0);
+  const totReal = lines.reduce((s, l) => s + l.realAnn,    0);
+  const totObjYtd  = lines.reduce((s, l) => s + l.objYtdRow,  0);
+  const totRealYtd = lines.reduce((s, l) => s + l.realCumRow, 0);
+  const totPct = totObjYtd > 0 ? (totRealYtd / totObjYtd) * 100 : null;
+
+  // Graphique en barres groupées : top 15 entités, 3 séries (Réalisé YTD, Objectif YTD, Tendance annuelle)
+  const TOP_N_CHART = 15;
+  const chartLines = lines.slice(0, TOP_N_CHART);
+  const chartId = cardId + '-bar-chart';
+  const noteSuffix = lines.length > TOP_N_CHART ? ` <span style="color:var(--text-muted);font-weight:400">(top ${TOP_N_CHART} sur ${lines.length})</span>` : '';
+  const chartHtml = `<div style="margin-bottom:14px">
+    <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Cumul YTD vs objectif vs tendance${noteSuffix}</div>
+    <div style="position:relative;height:${Math.max(220, Math.min(420, 80 + chartLines.length * 22))}px"><canvas id="${chartId}"></canvas></div>
+  </div>`;
+
+  const colCount = showPctN1 ? 8 : 7;
+  body.innerHTML = chartHtml + `<table class="tobj">
+    <thead><tr>
+      <th class="lbl">${escH(keyLabel)}</th>
+      ${showPctN1 ? '<th title="% d\'objectif vs N-1 défini en backoffice">% N-1</th>' : ''}
+      <th>Objectif annuel</th>
+      <th>Objectif YTD</th>
+      <th>Réalisé YTD</th>
+      <th>Écart${indMeta().unit ? ' (' + indMeta().unit + ')' : ''}</th>
+      <th>% atteint</th>
+      <th class="bar-cell">Progression</th>
+    </tr></thead>
+    <tbody>
+      ${lines.map((l, idx) => {
+        const pctTxt = l.pctRow === null ? '—' : fmtPct(l.pctRow);
+        const pctCls = l.pctRow === null ? '' : pctClass(l.pctRow);
+        const ecartCls = l.ecartRow >= 0 ? 'pct-good' : 'pct-bad';
+        const ecartTxt = (l.ecartRow >= 0 ? '+' : '') + fmtEuro(l.ecartRow);
+        // Sous-contenu déplié via l'expander (sous-dim commercial, articles, etc.)
+        const subId = `${cardId}-sub-${idx}`;
+        const subContent = expandRender ? expandRender(l, prog) : '';
+        const hasExpand = !!subContent;
+        const arrow = hasExpand
+          ? `<span style="cursor:pointer;display:inline-block;width:14px;color:var(--blue);font-weight:700" onclick="objToggleSub('${subId}', this)">▸</span> `
+          : '';
+        // Compteur d'articles pour la dim article (option B) — affiché à côté du label
+        const artCount = Array.isArray(l.articles) ? l.articles.length : 0;
+        const labelSuffix = artCount > 0 ? ` <span style="color:var(--text-muted);font-weight:400;font-size:.7rem">(${artCount} art.)</span>` : '';
+        const pctN1Cell = showPctN1
+          ? (typeof l.pctN1 === 'number'
+              ? `<td style="color:${l.pctInherited ? 'var(--text-muted)' : 'var(--blue)'};font-weight:${l.pctInherited ? '400' : '600'};font-style:${l.pctInherited ? 'italic' : 'normal'}" title="${l.pctInherited ? 'Hérité du % global' : 'Saisi en backoffice pour cette ligne'}">${fmt(l.pctN1, 0) + ' %'}</td>`
+              : `<td style="color:var(--text-muted)">—</td>`)
+          : '';
+        const mainTr = `<tr>
+          <td class="lbl">${arrow}${escH(l.label || l.value || l.key)}${labelSuffix}</td>
+          ${pctN1Cell}
+          <td>${fmtEuro(l.objAnnRow)}</td>
+          <td>${fmtEuro(l.objYtdRow)}</td>
+          <td>${fmtEuro(l.realCumRow)}</td>
+          <td class="${ecartCls}">${ecartTxt}</td>
+          <td class="pct ${pctCls}">${pctTxt}</td>
+          <td class="bar-cell">
+            <div class="bar-wrap"><div class="bar-fill" style="width:${l.barWidth}%;background:${pctColor(l.pctRow ?? 0)}"></div></div>
+          </td>
+        </tr>`;
+        const subTr = hasExpand ? `<tr id="${subId}" hidden><td colspan="${colCount}" style="padding:0;background:var(--surface2);border-bottom:1px solid var(--border)">
+          ${subContent}
+        </td></tr>` : '';
+        return mainTr + subTr;
+      }).join('')}
+      <tr class="total">
+        <td class="lbl">TOTAL</td>
+        ${showPctN1 ? '<td></td>' : ''}
+        <td>${fmtEuro(totObj)}</td>
+        <td>${fmtEuro(totObjYtd)}</td>
+        <td>${fmtEuro(totRealYtd)}</td>
+        <td>${(totRealYtd - totObjYtd >= 0 ? '+' : '') + fmtEuro(totRealYtd - totObjYtd)}</td>
+        <td>${totPct === null ? '—' : fmtPct(totPct)}</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>`;
+
+  // Instanciation du graphique en barres après injection du HTML
+  const canvas = qs(chartId);
+  if (canvas) {
+    const ctx = canvas.getContext('2d');
+    if (charts[chartId]) charts[chartId].destroy();
+    charts[chartId] = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: chartLines.map(l => l.label || l.value || l.key),
+        datasets: [
+          { label: 'Réalisé YTD',          data: chartLines.map(l => l.realCumRow), backgroundColor: 'rgba(76,175,80,.85)',  borderColor: '#4CAF50', borderWidth: 1 },
+          { label: 'Objectif YTD',         data: chartLines.map(l => l.objYtdRow),  backgroundColor: 'rgba(33,150,243,.85)', borderColor: '#2196F3', borderWidth: 1 },
+          { label: 'Tendance (annuelle)',  data: chartLines.map(l => l.trendAnn),   backgroundColor: 'rgba(156,39,176,.55)', borderColor: '#9C27B0', borderWidth: 1, borderDash: [4, 3] },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: {
+          legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
+          tooltip: { callbacks: { label: c => ` ${c.dataset.label} : ${fmtEuro(c.parsed.x || 0)}` } }
+        },
+        scales: {
+          x: { ticks: { color: '#8892a4', callback: v => fmt(v) + unitSuffix() }, grid: { color: '#2a2d3e' }, beginAtZero: true },
+          y: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { display: false } }
+        }
+      }
+    });
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  await loadConnectionsList();
+  await loadObjectifs();
+  if (currentObjectifId) loadData();
+}
+init();
+</script>
+</body>
+</html>

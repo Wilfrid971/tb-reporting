@@ -1,0 +1,27 @@
+{
+  "pages": [
+    "rapport_ca",
+    "rapport_commerciaux"
+  ],
+  "periode": "ytd",
+  "pr": "PLVLASTPR",
+  "schedule": {
+    "enabled": true,
+    "cron": "0 22 * * 1",
+    "recipients": []
+  },
+  "mg": "af",
+  "format": "pdf",
+  "dbs": "default",
+  "title": "RAPPORTS QUOTIDIEN",
+  "schedules": [
+    {
+      "id": "s0",
+      "enabled": true,
+      "cron": "0 19 * * *",
+      "recipients": [
+        "wilfrid971@gmail.com"
+      ]
+    }
+  ]
+}
