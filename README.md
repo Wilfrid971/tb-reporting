@@ -1,5 +1,7 @@
 # TB Reporting
 
+[![CI](https://github.com/Wilfrid971/tb-reporting/actions/workflows/ci.yml/badge.svg)](https://github.com/Wilfrid971/tb-reporting/actions/workflows/ci.yml)
+
 Plateforme de reporting et tableaux de bord pour ERP **Wavesoft** (SQL Server). Conçue pour être déployée chez le client en LAN interne, sur Windows Server, en tant que service Windows.
 
 ## Aperçu
