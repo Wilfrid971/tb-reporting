@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    name: Syntax & JSON
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Syntax check (server + config + public JS)
+        shell: bash
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r f; do
+            if ! node -c "$f"; then
+              echo "::error file=$f::syntax error"
+              fail=1
+            fi
+          done < <(find server config public scripts -type f -name '*.js')
+          exit $fail
+
+      - name: Validate JSON (data + config)
+        shell: bash
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r f; do
+            if ! node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$f" 2>/dev/null; then
+              echo "::error file=$f::invalid JSON"
+              fail=1
+            fi
+          done < <(find data config install/data -type f -name '*.json' 2>/dev/null)
+          exit $fail
