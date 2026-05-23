@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  # NPM dependencies (package.json / package-lock.json)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+    # Majors: PR individuelle (review au cas par cas — risque breaking change).
+
+  # GitHub Actions versions (workflows under .github/workflows/)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
