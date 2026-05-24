@@ -8,6 +8,7 @@
   <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
   <script src="/theme.js"></script>
   <script src="/utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     :root {
       --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
@@ -129,10 +130,20 @@
   <div class="ms-wrap" id="ms-marques"><button class="ms-btn" type="button"><span>Toutes les marques</span></button><div class="ms-dd"></div></div>
   <div class="ms-wrap" id="ms-familles"><button class="ms-btn" type="button"><span>Toutes les familles</span></button><div class="ms-dd"></div></div>
   <div class="ms-wrap" id="ms-reps"><button class="ms-btn" type="button"><span>Tous les commerciaux</span></button><div class="ms-dd"></div></div>
+  <select id="sel-dim" title="Dimension de classification article (niveau 2 du tree)">
+    <option value="ARTMARQUE" selected>Marque</option>
+    <option value="ARTFAMILLE">Famille</option>
+    <option value="ARTSOUSFAMILLE">Sous-famille</option>
+    <option value="ARTCATEGORIE">Catégorie</option>
+    <option value="ARTCLASSE">Classe</option>
+    <option value="ARTNATURE">Nature</option>
+    <option value="ARTCOLLECTION">Collection</option>
+  </select>
   <select id="sel-cliactif" title="Clients à inclure">
     <option value="O" selected>Clients actifs</option>
     <option value="N">Clients inactifs</option>
     <option value="all">Tous les clients</option>
+    <option value="fideleN2">Clients fidèles (CA N et N-2)</option>
   </select>
   <div class="fld-grp" title="TVA pour ramener les prix relevés (saisis TTC) en HT">
     TVA <input type="number" id="sel-tva" min="0" max="100" step="0.5" value="8.5"> %
@@ -150,6 +161,7 @@
 <div class="container">
   <div id="error-banner" class="error-banner"></div>
   <div id="kpis" class="kpi-row"></div>
+  <div id="chart-section"></div>
   <div id="tree-section" class="section"></div>
   <div id="gaps-article-section"></div>
   <div id="gaps-client-section"></div>
@@ -206,6 +218,7 @@ function saveState(){
       date_fin:   qs('sel-date-fin')?.value   || '',
       cliactif:   qs('sel-cliactif')?.value   || '',
       tva:        qs('sel-tva')?.value        || '',
+      dim:        qs('sel-dim')?.value        || '',
       secteurs: Array.from(SELECTED_SECTEURS),
       marques:  Array.from(SELECTED_MARQUES),
       familles: Array.from(SELECTED_FAMILLES),
@@ -290,6 +303,7 @@ async function initFilters(){
   qs('sel-tva').onchange         = load;
   qs('sel-date-debut').onchange  = load;
   qs('sel-date-fin').onchange    = load;
+  qs('sel-dim').onchange         = load;
 
   const p = new URLSearchParams(location.search);
   if(p.get('secteurs')) p.get('secteurs').split(',').forEach(s => SELECTED_SECTEURS.add(s));
@@ -298,6 +312,7 @@ async function initFilters(){
   if(p.get('repid'))    p.get('repid').split(',').forEach(r => SELECTED_REPS.add(r));
   if(p.get('cliactif')) qs('sel-cliactif').value = p.get('cliactif');
   if(p.get('tva'))      qs('sel-tva').value      = p.get('tva');
+  if(p.get('dim'))      qs('sel-dim').value      = p.get('dim');
   if(p.get('date_debut')) qs('sel-date-debut').value = p.get('date_debut');
   if(p.get('date_fin'))   qs('sel-date-fin').value   = p.get('date_fin');
 
@@ -307,6 +322,7 @@ async function initFilters(){
     if (saved.date_fin   && !p.get('date_fin'))   qs('sel-date-fin').value   = saved.date_fin;
     if (saved.cliactif   && !p.get('cliactif'))   qs('sel-cliactif').value   = saved.cliactif;
     if (saved.tva        && !p.get('tva'))        qs('sel-tva').value        = saved.tva;
+    if (saved.dim        && !p.get('dim'))        qs('sel-dim').value        = saved.dim;
     document.querySelectorAll('.ms-btn').forEach(b => {
       const wrap = b.closest('.ms-wrap'); const dd = wrap?.querySelector('.ms-dd'); if (!dd) return;
       const checks = dd.querySelectorAll('input[type=checkbox][value]');
@@ -345,15 +361,24 @@ function skeleton(){
   qs('pricing-section').innerHTML = '';
 }
 
+// Libellé court pour la dim affichée
+const DIM_LABELS = {
+  ARTMARQUE: 'Marque', ARTFAMILLE: 'Famille', ARTSOUSFAMILLE: 'Sous-famille',
+  ARTCATEGORIE: 'Catégorie', ARTCLASSE: 'Classe', ARTNATURE: 'Nature', ARTCOLLECTION: 'Collection',
+};
+function dimLbl(d) { return DIM_LABELS[d] || d || 'Dimension'; }
+
 function renderKpis(data){
   const k = data.kpis || {};
   const pctAcheteurs = k.totalClientsPortefeuille > 0
     ? (k.nbAcheteurs / k.totalClientsPortefeuille * 100) : 0;
+  const periodeN2 = data.periodeN2
+    ? ` · vs ${data.periodeN2.date_debut} → ${data.periodeN2.date_fin}` : '';
   qs('kpis').innerHTML = `
     <div class="kpi-card">
       <div class="kpi-label">Clients portefeuille</div>
       <div class="kpi-value">${fmt(k.totalClientsPortefeuille)}</div>
-      <div class="kpi-sub">${data.periode?.date_debut} → ${data.periode?.date_fin}</div>
+      <div class="kpi-sub">${data.periode?.date_debut} → ${data.periode?.date_fin}${periodeN2}</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Acheteurs (période)</div>
@@ -361,8 +386,9 @@ function renderKpis(data){
       <div class="kpi-sub">${fmt(pctAcheteurs,1)} % du portefeuille</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">CA réalisé HT</div>
-      <div class="kpi-value">${fmtEur(k.ca)}</div>
+      <div class="kpi-label">Cartons vendus</div>
+      <div class="kpi-value">${fmt(k.cartons)}</div>
+      <div class="kpi-sub">(PLVD1 = qté ÷ PLVD3, ou qté si PLVD3=0)</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Articles avec relevé prix</div>
@@ -387,37 +413,39 @@ function pctClass(p){
 function renderTree(data){
   const tree = data.treeBySecteur || [];
   const sec = qs('tree-section');
+  const dimL = dimLbl(data.dim);
   if (!tree.length) {
-    sec.innerHTML = `<div class="section-header"><span class="section-title">📂 Hiérarchie secteur × marque × article</span></div>
+    sec.innerHTML = `<div class="section-header"><span class="section-title">📂 Hiérarchie secteur → ${dimL} → article</span></div>
       <div style="padding:20px;text-align:center;color:var(--muted)">Aucune donnée sur la période.</div>`;
     return;
   }
 
   let html = `<div class="section-header">
-    <span class="section-title">📂 Hiérarchie secteur → marque → article</span>
+    <span class="section-title">📂 Hiérarchie secteur → ${dimL} → article</span>
     <span class="section-sub">${tree.length} secteur(s) · TVA ${data.tva} %</span>
   </div>
   <div style="overflow-x:auto"><table class="tree-table"><thead><tr>
-    <th>Niveau</th><th>Clients</th><th>Acheteurs</th><th>CA HT</th>
+    <th>Niveau</th><th>Clients</th><th>Acheteurs</th><th>Cartons</th>
     <th>Mon PV HT</th><th>Concurrent moy HT</th><th>Min / Max</th>
     <th>Écart</th><th>Relevés</th><th>Dernier relevé</th>
   </tr></thead><tbody>`;
 
+  // Tree collapsed par défaut au niveau secteur : seuls les lvl-1 (secteurs) visibles.
   tree.forEach((s, si) => {
     const sid = `sec-${si}`;
     const pctAch = s.totalClients > 0 ? (s.nbBuyers / s.totalClients * 100) : null;
-    html += `<tr class="lvl-1" data-row="${sid}"><td class="lbl"><span class="toggler" data-toggle="${sid}">▾</span> ${escH(s.label)}</td>
+    html += `<tr class="lvl-1" data-row="${sid}"><td class="lbl"><span class="toggler" data-toggle="${sid}">▸</span> ${escH(s.label)}</td>
       <td>${fmt(s.totalClients)}</td>
       <td>${fmt(s.nbBuyers)}${pctAch!==null?` <span class="val-pct ${pctClass(pctAch)}">${fmt(pctAch,1)} %</span>`:''}</td>
-      <td>${fmtEur(s.ca)}</td>
-      <td colspan="4" class="muted" style="text-align:left;padding-left:20px">${s.children.length} marque(s)</td>
+      <td>${fmt(s.cartons)}</td>
+      <td colspan="4" class="muted" style="text-align:left;padding-left:20px">${s.children.length} ${dimL.toLowerCase()}(s)</td>
       <td>${fmt(s.nb_releves)}</td><td></td></tr>`;
     s.children.forEach((m, mi) => {
-      const mid = `mar-${si}-${mi}`;
-      html += `<tr class="lvl-2" data-row="${mid}" data-parent="${sid}"><td class="lbl"><span class="toggler" data-toggle="${mid}">▾</span> ${escH(m.label)}</td>
+      const mid = `dim-${si}-${mi}`;
+      html += `<tr class="lvl-2" data-row="${mid}" data-parent="${sid}" style="display:none"><td class="lbl"><span class="toggler" data-toggle="${mid}">▸</span> ${escH(m.label)}</td>
         <td></td>
         <td>${fmt(m.nbBuyers)}</td>
-        <td>${fmtEur(m.ca)}</td>
+        <td>${fmt(m.cartons)}</td>
         <td colspan="4" class="muted" style="text-align:left;padding-left:20px">${m.children.length} article(s)</td>
         <td>${fmt(m.nb_releves)}</td><td></td></tr>`;
       m.children.forEach((a) => {
@@ -425,10 +453,10 @@ function renderTree(data){
           (a.ecart_pct >= 5 ? 'val-pct bad' : (a.ecart_pct <= -2 ? 'val-pct good' : 'val-pct avg'));
         const minMax = (a.prix_concurrent_min_ht !== null && a.prix_concurrent_max_ht !== null && a.prix_concurrent_min_ht !== undefined)
           ? `${fmtEur(a.prix_concurrent_min_ht,2)} / ${fmtEur(a.prix_concurrent_max_ht,2)}` : '—';
-        html += `<tr class="lvl-3" data-parent="${mid}"><td class="lbl">${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></td>
+        html += `<tr class="lvl-3" data-parent="${mid}" style="display:none"><td class="lbl">${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></td>
           <td></td>
           <td>${fmt(a.nbBuyers)}</td>
-          <td>${fmtEur(a.ca)}</td>
+          <td>${fmt(a.cartons)}</td>
           <td>${fmtEur(a.pv_moyen_ht,2)}</td>
           <td>${fmtEur(a.prix_concurrent_moy_ht,2)}</td>
           <td>${minMax}</td>
@@ -443,25 +471,24 @@ function renderTree(data){
   sec.className = 'section';
   sec.innerHTML = html;
 
-  // Toggle : cache uniquement les enfants directs (un seul niveau).
-  // Pour cacher la sous-arbre entière, on cache tous les descendants en bloc.
+  // Toggle : ouvre/ferme uniquement les enfants directs. Les petits-enfants restent
+  // pliés tant qu'on n'a pas cliqué sur leur parent (cohérent avec l'UX "drill").
   sec.querySelectorAll('[data-toggle]').forEach(t => {
     t.onclick = (e) => {
       e.stopPropagation();
       const id = t.dataset.toggle;
       const opening = t.textContent === '▸';
       t.textContent = opening ? '▾' : '▸';
-      // Collecte récursive des IDs sous ce nœud
-      const toToggle = new Set();
-      function collect(parentId) {
-        sec.querySelectorAll(`[data-parent="${parentId}"]`).forEach(row => {
-          toToggle.add(row);
-          const childId = row.dataset.row;
-          if (childId) collect(childId);
-        });
-      }
-      collect(id);
-      toToggle.forEach(row => row.style.display = opening ? '' : 'none');
+      sec.querySelectorAll(`[data-parent="${id}"]`).forEach(child => {
+        child.style.display = opening ? '' : 'none';
+        // Si on referme un parent, on referme aussi tous ses descendants visibles
+        if (!opening) {
+          const childId = child.dataset.row;
+          if (childId) sec.querySelectorAll(`[data-parent="${childId}"]`).forEach(gc => gc.style.display = 'none');
+          const tt = child.querySelector('[data-toggle]');
+          if (tt && tt.textContent === '▾') tt.textContent = '▸';
+        }
+      });
     };
   });
 }
@@ -469,11 +496,12 @@ function renderTree(data){
 function renderGapsByArticle(data){
   const sec = qs('gaps-article-section');
   const list = data.gapsByArticle || [];
+  const dimL = dimLbl(data.dim);
   if (!list.length) { sec.innerHTML = ''; return; }
   let html = `<div class="section">
     <div class="section-header">
       <span class="section-title">🚫 Gaps articles — clients du secteur qui n'achètent pas l'article</span>
-      <span class="section-sub">${list.length} couple(s) secteur × marque</span>
+      <span class="section-sub">${list.length} couple(s) secteur × ${dimL.toLowerCase()}</span>
     </div>
     <div class="gaps-card">`;
   list.forEach((entry, ei) => {
@@ -483,7 +511,7 @@ function renderGapsByArticle(data){
       const pctAbs = tot > 0 ? art.nbAbsents / tot * 100 : 0;
       html += `<div class="gaps-row">
         <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
-          <span class="name">${escH(entry.secteur)} · ${escH(entry.marque)} · ${escH(art.code)} — ${escH(art.designation||'')}</span>
+          <span class="name">${escH(entry.secteur)} · ${escH(entry.dim_value)} · ${escH(art.code)} — ${escH(art.designation||'')}</span>
           <span class="count">${art.nbAbsents} absent(s) / ${tot} (${fmt(pctAbs,1)} %)</span>
         </div>
         <ul class="gaps-body" id="${id}">${
@@ -499,11 +527,12 @@ function renderGapsByArticle(data){
 function renderGapsByClient(data){
   const sec = qs('gaps-client-section');
   const list = data.gapsByClient || [];
+  const dimL = dimLbl(data.dim);
   if (!list.length) { sec.innerHTML = ''; return; }
   let html = `<div class="section">
     <div class="section-header">
       <span class="section-title">👤 Gaps clients — articles manquants par client</span>
-      <span class="section-sub">${list.length} couple(s) secteur × marque</span>
+      <span class="section-sub">${list.length} couple(s) secteur × ${dimL.toLowerCase()}</span>
     </div>
     <div class="gaps-card">`;
   list.forEach((entry, ei) => {
@@ -511,8 +540,8 @@ function renderGapsByClient(data){
       const id = `gap-cli-${ei}-${ci}`;
       html += `<div class="gaps-row">
         <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
-          <span class="name">${escH(entry.secteur)} · ${escH(entry.marque)} · ${escH(c.nom)}</span>
-          <span class="count">${c.nbMissing} / ${c.nbArticlesMarque} article(s) manquants</span>
+          <span class="name">${escH(entry.secteur)} · ${escH(entry.dim_value)} · ${escH(c.nom)}</span>
+          <span class="count">${c.nbMissing} / ${c.nbArticlesDim} article(s) manquants</span>
         </div>
         <ul class="gaps-body" id="${id}">${
           c.missingArticles.map(a => `<li>${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></li>`).join('')
@@ -524,50 +553,104 @@ function renderGapsByClient(data){
   sec.innerHTML = html;
 }
 
+// Pricing nouvelle hiérarchie : SECTEUR → CLIENT → ARTICLE (relevés)
 function renderPricing(data){
   const sec = qs('pricing-section');
-  const list = data.pricingByClient || [];
+  const list = data.pricingBySecteur || [];
   if (!list.length) { sec.innerHTML = ''; return; }
   let html = `<div class="section">
     <div class="section-header">
-      <span class="section-title">💶 Comparatif prix par article × client</span>
-      <span class="section-sub">${list.length} article(s) avec relevé(s)</span>
+      <span class="section-title">💶 Comparatif prix concurrents — par secteur d'activité → client → article</span>
+      <span class="section-sub">${list.length} secteur(s) avec relevé(s)</span>
     </div>
     <div class="gaps-card">`;
-  list.forEach((art, ai) => {
-    const id = `pri-${ai}`;
+  list.forEach((entry, si) => {
+    const sid = `pri-sec-${si}`;
     html += `<div class="gaps-row">
-      <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
-        <span class="name">${escH(art.code||'(sans code)')} — ${escH(art.designation||'')} <span class="muted" style="font-weight:400">· ${escH(art.marque||'')}</span></span>
-        <span class="count">${art.nb_releves} relevé(s) · ${art.nb_clients} client(s)</span>
+      <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
+        <span class="name">${escH(entry.secteur)}</span>
+        <span class="count">${entry.nb_clients} client(s) · ${entry.nb_releves} relevé(s)</span>
       </div>
-      <div class="gaps-body" id="${id}">
-        <table class="pricing-table"><thead><tr>
-          <th>Client</th><th>Secteur</th><th>Date</th>
-          <th>Prix relevé HT</th><th>Promo HT</th><th>Mon PV chez client</th><th>Écart %</th>
-          <th>Marque relevée</th><th>Match</th>
-        </tr></thead><tbody>${
-          art.clients.map(c => {
-            const ecartCls = c.ecart_pct === null || c.ecart_pct === undefined ? '' :
-              (c.ecart_pct >= 5 ? 'val-pct bad' : (c.ecart_pct <= -2 ? 'val-pct good' : 'val-pct avg'));
-            return `<tr>
-              <td>${escH(c.client_nom||'')}</td>
-              <td class="muted">${escH(c.secteur||'')}</td>
-              <td class="muted">${escH(c.date_releve||'')}</td>
-              <td>${fmtEur(c.prix_releve_ht,2)}</td>
-              <td class="muted">${fmtEur(c.prix_promo_ht,2)}</td>
-              <td>${c.mon_pv_ht===null?'—':fmtEur(c.mon_pv_ht,2)}</td>
-              <td>${c.ecart_pct===null||c.ecart_pct===undefined?'—':`<span class="${ecartCls}">${fmtPct(c.ecart_pct)}</span>`}</td>
-              <td class="muted">${escH(c.marque_releve||'')}</td>
-              <td class="muted">${escH(c.match_type||'')}</td>
-            </tr>`;
-          }).join('')
-        }</tbody></table>
-      </div>
-    </div>`;
+      <div class="gaps-body" id="${sid}">`;
+    entry.clients.forEach((c, ci) => {
+      const cid = `pri-cli-${si}-${ci}`;
+      html += `<div style="margin:6px 0;border-left:3px solid var(--blue);padding-left:8px">
+        <div onclick="document.getElementById('${cid}').classList.toggle('open')" style="cursor:pointer;display:flex;gap:8px;align-items:center;padding:4px 6px;background:rgba(33,150,243,.06)">
+          <span style="font-weight:600">${escH(c.nom)}</span>
+          <span class="muted" style="font-size:.7rem">${escH(c.code||'')} · ${escH(c.commercial||'')}</span>
+          <span class="muted" style="margin-left:auto;font-size:.72rem">${c.nb_articles} article(s) · ${c.nb_releves} relevé(s)</span>
+        </div>
+        <div class="gaps-body" id="${cid}" style="padding:4px 8px 8px 0">
+          <table class="pricing-table"><thead><tr>
+            <th>Code</th><th>Article</th><th>Date</th>
+            <th>Prix relevé HT</th><th>Promo HT</th><th>Mon PV HT</th><th>Écart %</th>
+            <th>Marque relevée</th><th>Match</th>
+          </tr></thead><tbody>${
+            c.articles.map(a => {
+              const ecartCls = a.ecart_pct == null ? '' :
+                (a.ecart_pct >= 5 ? 'val-pct bad' : (a.ecart_pct <= -2 ? 'val-pct good' : 'val-pct avg'));
+              return `<tr>
+                <td>${escH(a.code||'')}</td>
+                <td class="muted">${escH(a.designation||'')}</td>
+                <td class="muted">${escH(a.date_releve||'')}</td>
+                <td>${fmtEur(a.prix_releve_ht,2)}</td>
+                <td class="muted">${fmtEur(a.prix_promo_ht,2)}</td>
+                <td>${a.mon_pv_ht==null?'—':fmtEur(a.mon_pv_ht,2)}</td>
+                <td>${a.ecart_pct==null?'—':`<span class="${ecartCls}">${fmtPct(a.ecart_pct)}</span>`}</td>
+                <td class="muted">${escH(a.marque_releve||'')}</td>
+                <td class="muted">${escH(a.match_type||'')}</td>
+              </tr>`;
+            }).join('')
+          }</tbody></table>
+        </div>
+      </div>`;
+    });
+    html += `</div></div>`;
   });
   html += `</div></div>`;
   sec.innerHTML = html;
+}
+
+// ── Chart : prix relevé moyen par secteur × dim (Chart.js bar chart) ─────
+let _priceChart = null;
+function renderChart(data){
+  const host = qs('chart-section');
+  const ch = data.chart || { secteurs: [], series: [] };
+  if (!ch.secteurs.length || !ch.series.length) { host.innerHTML = ''; return; }
+  const dimL = dimLbl(data.dim);
+  host.innerHTML = `<div class="section">
+    <div class="section-header">
+      <span class="section-title">📈 Prix relevé moyen HT par secteur × ${dimL.toLowerCase()}</span>
+      <span class="section-sub">${ch.secteurs.length} secteur(s) × ${ch.series.length} ${dimL.toLowerCase()}(s)</span>
+    </div>
+    <div style="padding:14px;height:340px;position:relative"><canvas id="price-chart"></canvas></div>
+  </div>`;
+  const palette = ['#2196F3','#4CAF50','#FF9800','#9C27B0','#F44336','#00BCD4','#FF5722','#8BC34A','#3F51B5','#FFC107','#E91E63','#009688'];
+  const datasets = ch.series.map((s, i) => ({
+    label: s.dim_value,
+    data: s.prixMoyHt,
+    backgroundColor: palette[i % palette.length],
+    borderColor: palette[i % palette.length],
+    borderWidth: 1,
+  }));
+  if (_priceChart) { _priceChart.destroy(); _priceChart = null; }
+  const ctx = document.getElementById('price-chart');
+  if (!ctx) return;
+  _priceChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: ch.secteurs, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#cbd5e1', font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y == null ? '—' : new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(c.parsed.y) + ' €'}` } },
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#8892a4', callback: v => new Intl.NumberFormat('fr-FR').format(v) + ' €' }, grid: { color: '#2a2d3e' } },
+      },
+    },
+  });
 }
 
 let _firstLoadDone = false;
@@ -586,6 +669,7 @@ async function load(){
   if (SELECTED_REPS.size)     params.set('repid',    Array.from(SELECTED_REPS).join(','));
   const cli = qs('sel-cliactif').value; if (cli) params.set('cliactif', cli);
   const tva = qs('sel-tva').value;      if (tva) params.set('tva', tva);
+  const dim = qs('sel-dim').value;      if (dim) params.set('dim', dim);
   applyDbParam(params);
 
   saveState();
@@ -595,6 +679,7 @@ async function load(){
     LAST_DATA = data;
     updateDbBadge(data.db);
     renderKpis(data);
+    renderChart(data);
     renderTree(data);
     renderGapsByArticle(data);
     renderGapsByClient(data);
@@ -607,8 +692,9 @@ async function load(){
     dot.className = 'err';
     banner.style.display = 'block';
     banner.textContent = 'Erreur : ' + err.message;
-    ['kpis','tree-section','gaps-article-section','gaps-client-section','pricing-section']
+    ['kpis','chart-section','tree-section','gaps-article-section','gaps-client-section','pricing-section']
       .forEach(id => qs(id).innerHTML = '');
+    if (_priceChart) { _priceChart.destroy(); _priceChart = null; }
   } finally {
     btn.disabled = false; btn.textContent = '↻ Actualiser';
   }
@@ -625,6 +711,7 @@ function buildExportParams(){
   if (SELECTED_REPS.size)     params.set('repid',    Array.from(SELECTED_REPS).join(','));
   const cli = qs('sel-cliactif').value; if (cli) params.set('cliactif', cli);
   const tva = qs('sel-tva').value;      if (tva) params.set('tva', tva);
+  const dim = qs('sel-dim').value;      if (dim) params.set('dim', dim);
   applyDbParam(params);
   return params;
 }
