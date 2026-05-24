@@ -493,61 +493,114 @@ function renderTree(data){
   });
 }
 
+// Gaps articles : rupture par SECTEUR (pliable) → article (pliable → clients absents)
 function renderGapsByArticle(data){
   const sec = qs('gaps-article-section');
   const list = data.gapsByArticle || [];
   const dimL = dimLbl(data.dim);
   if (!list.length) { sec.innerHTML = ''; return; }
+
+  // Un secteur peut porter plusieurs dim_value : on regroupe les entrées par secteur.
+  const bySecteur = new Map();
+  list.forEach(entry => {
+    if (!bySecteur.has(entry.secteur)) bySecteur.set(entry.secteur, []);
+    bySecteur.get(entry.secteur).push(entry);
+  });
+
   let html = `<div class="section">
     <div class="section-header">
       <span class="section-title">🚫 Gaps articles — clients du secteur qui n'achètent pas l'article</span>
-      <span class="section-sub">${list.length} couple(s) secteur × ${dimL.toLowerCase()}</span>
+      <span class="section-sub">${bySecteur.size} secteur(s)</span>
     </div>
     <div class="gaps-card">`;
-  list.forEach((entry, ei) => {
-    entry.articles.forEach((art, ai) => {
-      const id = `gap-art-${ei}-${ai}`;
-      const tot = art.nbBuyers + art.nbAbsents;
-      const pctAbs = tot > 0 ? art.nbAbsents / tot * 100 : 0;
-      html += `<div class="gaps-row">
-        <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
-          <span class="name">${escH(entry.secteur)} · ${escH(entry.dim_value)} · ${escH(art.code)} — ${escH(art.designation||'')}</span>
-          <span class="count">${art.nbAbsents} absent(s) / ${tot} (${fmt(pctAbs,1)} %)</span>
-        </div>
-        <ul class="gaps-body" id="${id}">${
-          art.clients.map(c => `<li>${escH(c.nom)} <span class="cli-cmd">${escH(c.code)} · ${escH(c.commercial||'sans commercial')}</span></li>`).join('')
-        }</ul>
-      </div>`;
+  let si = 0;
+  bySecteur.forEach((entries, secteur) => {
+    const sid = `gap-art-sec-${si}`;
+    const nbArticles = entries.reduce((s, e) => s + e.articles.length, 0);
+    html += `<div class="gaps-row">
+      <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
+        <span class="name">${escH(secteur)}</span>
+        <span class="count">${nbArticles} article(s) avec gap</span>
+      </div>
+      <div class="gaps-body" id="${sid}" style="padding:0 0 0 16px">`;
+    let ai = 0;
+    entries.forEach(entry => {
+      entry.articles.forEach(art => {
+        const id = `gap-art-${si}-${ai++}`;
+        const tot = art.nbBuyers + art.nbAbsents;
+        const pctAbs = tot > 0 ? art.nbAbsents / tot * 100 : 0;
+        html += `<div class="gaps-row">
+          <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
+            <span class="name">${escH(entry.dim_value)} · ${escH(art.code)} — ${escH(art.designation||'')}</span>
+            <span class="count">${art.nbAbsents} absent(s) / ${tot} (${fmt(pctAbs,1)} %)</span>
+          </div>
+          <ul class="gaps-body" id="${id}">${
+            art.clients.map(c => `<li>${escH(c.nom)} <span class="cli-cmd">${escH(c.code)} · ${escH(c.commercial||'sans commercial')}</span></li>`).join('')
+          }</ul>
+        </div>`;
+      });
     });
+    html += `</div></div>`;
+    si++;
   });
   html += `</div></div>`;
   sec.innerHTML = html;
 }
 
+// Gaps clients : rupture SECTEUR (pliable) → marque/dim (pliable) → client (pliable → articles manquants)
 function renderGapsByClient(data){
   const sec = qs('gaps-client-section');
   const list = data.gapsByClient || [];
   const dimL = dimLbl(data.dim);
   if (!list.length) { sec.innerHTML = ''; return; }
+
+  // Chaque entrée = un couple (secteur, dim_value) ; on regroupe les dim par secteur.
+  const bySecteur = new Map();
+  list.forEach(entry => {
+    if (!bySecteur.has(entry.secteur)) bySecteur.set(entry.secteur, []);
+    bySecteur.get(entry.secteur).push(entry);
+  });
+
   let html = `<div class="section">
     <div class="section-header">
       <span class="section-title">👤 Gaps clients — articles manquants par client</span>
-      <span class="section-sub">${list.length} couple(s) secteur × ${dimL.toLowerCase()}</span>
+      <span class="section-sub">${bySecteur.size} secteur(s)</span>
     </div>
     <div class="gaps-card">`;
-  list.forEach((entry, ei) => {
-    entry.clients.forEach((c, ci) => {
-      const id = `gap-cli-${ei}-${ci}`;
+  let si = 0;
+  bySecteur.forEach((entries, secteur) => {
+    const sid = `gap-cli-sec-${si}`;
+    const nbClients = entries.reduce((s, e) => s + e.clients.length, 0);
+    html += `<div class="gaps-row">
+      <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
+        <span class="name">${escH(secteur)}</span>
+        <span class="count">${entries.length} ${dimL.toLowerCase()}(s) · ${nbClients} client(s)</span>
+      </div>
+      <div class="gaps-body" id="${sid}" style="padding:0 0 0 16px">`;
+    entries.forEach((entry, di) => {
+      const did = `gap-cli-dim-${si}-${di}`;
       html += `<div class="gaps-row">
-        <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
-          <span class="name">${escH(entry.secteur)} · ${escH(entry.dim_value)} · ${escH(c.nom)}</span>
-          <span class="count">${c.nbMissing} / ${c.nbArticlesDim} article(s) manquants</span>
+        <div class="gaps-head" onclick="document.getElementById('${did}').classList.toggle('open')">
+          <span class="name">${escH(entry.dim_value)}</span>
+          <span class="count">${entry.clients.length} client(s) · ${entry.nbArticlesDim} article(s) au catalogue</span>
         </div>
-        <ul class="gaps-body" id="${id}">${
-          c.missingArticles.map(a => `<li>${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></li>`).join('')
-        }</ul>
-      </div>`;
+        <div class="gaps-body" id="${did}" style="padding:0 0 0 16px">`;
+      entry.clients.forEach((c, ci) => {
+        const id = `gap-cli-${si}-${di}-${ci}`;
+        html += `<div class="gaps-row">
+          <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
+            <span class="name">${escH(c.nom)} <span class="cli-cmd">${escH(c.code||'')} · ${escH(c.commercial||'sans commercial')}</span></span>
+            <span class="count">${c.nbMissing} / ${c.nbArticlesDim} manquants</span>
+          </div>
+          <ul class="gaps-body" id="${id}">${
+            c.missingArticles.map(a => `<li>${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></li>`).join('')
+          }</ul>
+        </div>`;
+      });
+      html += `</div></div>`;
     });
+    html += `</div></div>`;
+    si++;
   });
   html += `</div></div>`;
   sec.innerHTML = html;
