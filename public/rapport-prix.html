@@ -537,7 +537,8 @@ function concListHtml(concurrents, showClassif){
   return `<div class="conc-block"><div class="conc-title">🆚 Produits concurrents relevés (${concurrents.length})</div><ul class="conc-list">${items}</ul></div>`;
 }
 
-// Gaps articles : rupture par SECTEUR (pliable) → article (pliable → clients absents)
+// Gaps articles : rupture SECTEUR (pliable) → classification/dim (pliable) → article
+// (pliable → clients absents + produits concurrents)
 function renderGapsByArticle(data){
   const sec = qs('gaps-article-section');
   const list = data.gapsByArticle || [];
@@ -564,18 +565,24 @@ function renderGapsByArticle(data){
     html += `<div class="gaps-row">
       <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
         <span class="name">${escH(secteur)}</span>
-        <span class="count">${nbArticles} article(s) avec gap</span>
+        <span class="count">${entries.length} ${dimL.toLowerCase()}(s) · ${nbArticles} article(s) avec gap</span>
       </div>
       <div class="gaps-body" id="${sid}" style="padding:0 0 0 16px">`;
-    let ai = 0;
-    entries.forEach(entry => {
-      entry.articles.forEach(art => {
-        const id = `gap-art-${si}-${ai++}`;
+    entries.forEach((entry, di) => {
+      const did = `gap-art-dim-${si}-${di}`;
+      html += `<div class="gaps-row">
+        <div class="gaps-head" onclick="document.getElementById('${did}').classList.toggle('open')">
+          <span class="name">${escH(entry.dim_value || '(non défini)')}</span>
+          <span class="count">${entry.articles.length} article(s)</span>
+        </div>
+        <div class="gaps-body" id="${did}" style="padding:0 0 0 16px">`;
+      entry.articles.forEach((art, aii) => {
+        const id = `gap-art-${si}-${di}-${aii}`;
         const tot = art.nbBuyers + art.nbAbsents;
         const pctAbs = tot > 0 ? art.nbAbsents / tot * 100 : 0;
         html += `<div class="gaps-row">
           <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
-            <span class="name">${escH(entry.dim_value)} · ${escH(art.code)} — ${escH(art.designation||'')}</span>
+            <span class="name">${escH(art.code)} — ${escH(art.designation||'')}</span>
             <span class="count">${art.nbAbsents} absent(s) / ${tot} (${fmt(pctAbs,1)} %)</span>
           </div>
           <div class="gaps-body" id="${id}">
@@ -586,6 +593,7 @@ function renderGapsByArticle(data){
           </div>
         </div>`;
       });
+      html += `</div></div>`;
     });
     html += `</div></div>`;
     si++;
@@ -628,7 +636,7 @@ function renderGapsByClient(data){
       const did = `gap-cli-dim-${si}-${di}`;
       html += `<div class="gaps-row">
         <div class="gaps-head" onclick="document.getElementById('${did}').classList.toggle('open')">
-          <span class="name">${escH(entry.dim_value)}</span>
+          <span class="name">${escH(entry.dim_value || '(non défini)')}</span>
           <span class="count">${entry.clients.length} client(s) · ${entry.nbArticlesDim} article(s) au catalogue</span>
         </div>
         <div class="gaps-body" id="${did}" style="padding:0 0 0 16px">`;
