@@ -109,6 +109,11 @@
     .gaps-body.open{display:block}
     .gaps-body li{padding:3px 0;list-style:disc;margin-left:20px}
     .gaps-body .cli-cmd{color:var(--muted);font-size:.7rem;margin-left:6px}
+    .gaps-body ul.abs-list,.gaps-body ul.conc-list{margin:0;padding:0}
+    .conc-block{margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)}
+    .conc-title{font-weight:600;color:#90caf9;font-size:.74rem;margin-bottom:2px}
+    .conc-classif{color:#ffb74d;font-size:.7rem}
+    .conc-price{color:#81c784;font-size:.72rem;margin-left:4px}
     .pricing-table{width:100%;border-collapse:collapse;font-size:.78rem;margin-top:6px}
     .pricing-table th,.pricing-table td{padding:5px 8px;border-bottom:1px dashed var(--border);text-align:right}
     .pricing-table th{text-align:left;color:var(--muted);font-weight:700;text-transform:uppercase;
@@ -303,7 +308,7 @@ async function initFilters(){
   qs('sel-tva').onchange         = load;
   qs('sel-date-debut').onchange  = load;
   qs('sel-date-fin').onchange    = load;
-  qs('sel-dim').onchange         = load;
+  qs('sel-dim').onchange         = onDimChange;
 
   const p = new URLSearchParams(location.search);
   if(p.get('secteurs')) p.get('secteurs').split(',').forEach(s => SELECTED_SECTEURS.add(s));
@@ -349,6 +354,11 @@ async function initFilters(){
       }
     });
   }
+
+  // Si la classification retenue n'est pas Marque, on remplace la liste des
+  // marques (chargée par /filters) par les valeurs de cette dimension.
+  const finalDim = qs('sel-dim').value;
+  if (finalDim && finalDim !== 'ARTMARQUE') await refreshDimDropdown(finalDim);
 }
 
 function skeleton(){
@@ -367,6 +377,26 @@ const DIM_LABELS = {
   ARTCATEGORIE: 'Catégorie', ARTCLASSE: 'Classe', ARTNATURE: 'Nature', ARTCOLLECTION: 'Collection',
 };
 function dimLbl(d) { return DIM_LABELS[d] || d || 'Dimension'; }
+
+// Recharge la dropdown multi-select (ex-"marques") avec les valeurs de la
+// classification choisie, et ajuste son libellé "Tous/Toutes les …".
+async function refreshDimDropdown(dim){
+  const labelAll = `Toutes les ${dimLbl(dim).toLowerCase()}s`;
+  let values = [];
+  try {
+    const p = new URLSearchParams(); applyDbParam(p); p.set('dim', dim);
+    const r = await fetch(`${API}/dim-values?${p}`).then(x => x.json());
+    values = r.values || [];
+  } catch (e) { values = []; }
+  setupMS('ms-marques', values.map(v => ({ id:v, label:v })), SELECTED_MARQUES, labelAll, load);
+}
+// Changement de classification : les valeurs sélectionnées ne sont plus
+// transposables (marques ≠ classes…), on vide, on recharge la liste, puis on relance.
+async function onDimChange(){
+  SELECTED_MARQUES.clear();
+  await refreshDimDropdown(qs('sel-dim').value);
+  load();
+}
 
 function renderKpis(data){
   const k = data.kpis || {};
@@ -493,6 +523,20 @@ function renderTree(data){
   });
 }
 
+// Rend la liste des produits concurrents relevés. showClassif=true → étiquette
+// chaque produit de sa classification (gaps clients, où elle varie et peut être "Indéfini").
+function concListHtml(concurrents, showClassif){
+  if (!concurrents || !concurrents.length) return '';
+  const items = concurrents.map(p => {
+    const classif = showClassif ? ` <span class="conc-classif">(${escH(p.classif||'Indéfini')})</span>` : '';
+    const mq = p.marque ? ` <span class="muted">· ${escH(p.marque)}</span>` : '';
+    const prix = p.prix_releve_ht!=null ? `<span class="conc-price">${fmtEur(p.prix_releve_ht,2)}</span>` : '';
+    const nb = p.nb_releves>1 ? ` <span class="muted">×${p.nb_releves}</span>` : '';
+    return `<li>${escH(p.libelle||p.ref||'?')}${classif}${mq} ${prix}${nb}</li>`;
+  }).join('');
+  return `<div class="conc-block"><div class="conc-title">🆚 Produits concurrents relevés (${concurrents.length})</div><ul class="conc-list">${items}</ul></div>`;
+}
+
 // Gaps articles : rupture par SECTEUR (pliable) → article (pliable → clients absents)
 function renderGapsByArticle(data){
   const sec = qs('gaps-article-section');
@@ -534,9 +578,12 @@ function renderGapsByArticle(data){
             <span class="name">${escH(entry.dim_value)} · ${escH(art.code)} — ${escH(art.designation||'')}</span>
             <span class="count">${art.nbAbsents} absent(s) / ${tot} (${fmt(pctAbs,1)} %)</span>
           </div>
-          <ul class="gaps-body" id="${id}">${
-            art.clients.map(c => `<li>${escH(c.nom)} <span class="cli-cmd">${escH(c.code)} · ${escH(c.commercial||'sans commercial')}</span></li>`).join('')
-          }</ul>
+          <div class="gaps-body" id="${id}">
+            <ul class="abs-list">${
+              art.clients.map(c => `<li>${escH(c.nom)} <span class="cli-cmd">${escH(c.code)} · ${escH(c.commercial||'sans commercial')}</span></li>`).join('')
+            }</ul>
+            ${concListHtml(art.concurrents, false)}
+          </div>
         </div>`;
       });
     });
@@ -592,9 +639,12 @@ function renderGapsByClient(data){
             <span class="name">${escH(c.nom)} <span class="cli-cmd">${escH(c.code||'')} · ${escH(c.commercial||'sans commercial')}</span></span>
             <span class="count">${c.nbMissing} / ${c.nbArticlesDim} manquants</span>
           </div>
-          <ul class="gaps-body" id="${id}">${
-            c.missingArticles.map(a => `<li>${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></li>`).join('')
-          }</ul>
+          <div class="gaps-body" id="${id}">
+            <ul class="abs-list">${
+              c.missingArticles.map(a => `<li>${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></li>`).join('')
+            }</ul>
+            ${concListHtml(c.concurrents, true)}
+          </div>
         </div>`;
       });
       html += `</div></div>`;

@@ -148,6 +148,34 @@ router.get('/filters', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/prix/dim-values?dim=ARTCLASSE — valeurs distinctes de la classification
+// choisie, pour alimenter la dropdown multi-select qui s'adapte à la dimension.
+// ─────────────────────────────────────────────────────────────────────────────
+const ALLOWED_DIMS = new Set(['ARTMARQUE','ARTFAMILLE','ARTSOUSFAMILLE','ARTCATEGORIE','ARTNATURE','ARTCOLLECTION','ARTCLASSE']);
+router.get('/dim-values', async (req, res) => {
+  try {
+    const pool = await resolvePrixPool(req);
+    const dimRaw = String(req.query.dim || 'ARTMARQUE').trim();
+    const dim = ALLOWED_DIMS.has(dimRaw) ? dimRaw : 'ARTMARQUE';
+    const q = dim === 'ARTFAMILLE'
+      ? `SELECT DISTINCT RTRIM(af.AFMINTITULE) AS val
+         FROM ARTFAMILLES af WITH (NOLOCK)
+         JOIN ARTICLES a WITH (NOLOCK) ON a.AFMID=af.AFMID
+         WHERE af.AFMINTITULE IS NOT NULL AND LEN(RTRIM(af.AFMINTITULE))>0 AND a.ARTISSTATISTIQUE='O'
+         ORDER BY val`
+      : `SELECT DISTINCT RTRIM(a.${dim}) AS val
+         FROM ARTICLES a WITH (NOLOCK)
+         WHERE a.${dim} IS NOT NULL AND LEN(RTRIM(a.${dim}))>0 AND a.ARTISSTATISTIQUE='O'
+         ORDER BY val`;
+    const rows = await pool.request().query(q);
+    res.json({ dim, values: rows.recordset.map(x => x.val) });
+  } catch (err) {
+    console.error('[PRIX:dim-values]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /api/prix/penetration — vue principale : hiérarchie secteur×marque×article
 // + gaps article + gaps client + pricing détaillé par client.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,7 +192,6 @@ async function fetchPenetrationData(pool, query) {
     // (entre secteur et article). Défaut = ARTMARQUE pour rétro-compat. ARTFAMILLE
     // passe par la table ARTFAMILLES (libellé AFMINTITULE), les autres sont des
     // colonnes directes de ARTICLES.
-    const ALLOWED_DIMS = new Set(['ARTMARQUE','ARTFAMILLE','ARTSOUSFAMILLE','ARTCATEGORIE','ARTNATURE','ARTCOLLECTION','ARTCLASSE']);
     const dimRaw = String(query.dim || 'ARTMARQUE').trim();
     const dim    = ALLOWED_DIMS.has(dimRaw) ? dimRaw : 'ARTMARQUE';
     const dimSelectFam = `ISNULL(RTRIM(af.AFMINTITULE),'Sans famille')`;
@@ -225,7 +252,12 @@ async function fetchPenetrationData(pool, query) {
     const secteurFTc    = secteurs.length ? `AND ISNULL(RTRIM(tc.TIRACTIVITE),'Non défini') IN (${secteurInList})` : '';
     const secteurFBare  = secteurs.length ? `AND ISNULL(RTRIM(TIRACTIVITE),'Non défini') IN (${secteurInList})` : '';
     const marqueInList  = marques.map((_, i) => `@marque${i}`).join(',');
-    const marqueF       = marques.length ? `AND a.ARTMARQUE IN (${marqueInList})` : '';
+    // Le filtre "marques" porte sur la DIMENSION choisie (dim), pas uniquement ARTMARQUE :
+    // ex. dim=ARTCLASSE → filtre a.ARTCLASSE ; dim=ARTFAMILLE → via AFMID/AFMINTITULE.
+    const dimFilterClause = dim === 'ARTFAMILLE'
+      ? `a.AFMID IN (SELECT AFMID FROM ARTFAMILLES WITH (NOLOCK) WHERE AFMINTITULE IN (${marqueInList}))`
+      : `a.${dim} IN (${marqueInList})`;
+    const marqueF       = marques.length ? `AND ${dimFilterClause}` : '';
     const familleInList = familles.map((_, i) => `@fam${i}`).join(',');
     const familleF      = familles.length
       ? `AND a.AFMID IN (SELECT AFMID FROM ARTFAMILLES WITH (NOLOCK) WHERE AFMINTITULE IN (${familleInList}))`
@@ -370,6 +402,80 @@ async function fetchPenetrationData(pool, query) {
       pricingByArt.get(row.art_id).push(row);
     });
 
+    // ───── Q5 : produits concurrents relevés (y compris non résolus), pour enrichir
+    // les gaps. classif = dimension de NOTRE article si le relevé est résolu ;
+    // sinon la marque (quand dim=Marque) ou 'Indéfini' (en attendant un champ de
+    // classification côté EXT_Produits — upgrade base prévu). On exclut match_type
+    // 'direct' (= relevé sur une de nos propres références, pas un produit concurrent).
+    const concClassifSql = `
+      CASE
+        WHEN r.resolved_ARTID IS NOT NULL THEN ${dimSelect}
+        ${dim === 'ARTMARQUE'
+          ? `WHEN NULLIF(RTRIM(COALESCE(r.MARQUE, r.prod_marque)),'') IS NOT NULL THEN RTRIM(COALESCE(r.MARQUE, r.prod_marque))`
+          : ''}
+        ELSE N'Indéfini'
+      END`;
+    const r5 = pool.request();
+    bindCommon(r5);
+    const q5 = await r5.query(`
+      ${RELEVE_RESOLVED_CTE}
+      SELECT
+        ISNULL(RTRIM(t.TIRACTIVITE),'Non défini')        AS secteur,
+        r.TIRID                                          AS tir_id,
+        r.resolved_ARTID                                 AS art_id,
+        RTRIM(r.REFERENCE_ARTICLE)                       AS ref,
+        COALESCE(NULLIF(RTRIM(r.prod_libelle),''), RTRIM(r.DESIGNATION_ARTICLE)) AS libelle,
+        COALESCE(NULLIF(RTRIM(r.MARQUE),''), NULLIF(RTRIM(r.prod_marque),'')) AS marque,
+        ${concClassifSql}                                AS classif,
+        r.match_type                                     AS match_type,
+        CAST(r.PRIX_RELEVE AS float) / @tva_coef         AS prix_releve_ht,
+        CAST(r.PRIX_PROMO  AS float) / @tva_coef         AS prix_promo_ht,
+        CONVERT(varchar(10), r.DATE_RELEVE, 120)         AS date_releve
+      FROM releve_resolved r
+      LEFT JOIN ARTICLES a WITH (NOLOCK) ON a.ARTID = r.resolved_ARTID
+      ${dimJoin}
+      LEFT JOIN TIERS t WITH (NOLOCK) ON t.TIRID = r.TIRID
+      WHERE r.match_type <> 'direct'
+        ${marqueF} ${familleF}
+    `);
+    // Dédup par produit (réf + libellé) : conserve le relevé le plus récent + compte.
+    const dedupeConc = (list) => {
+      if (!list || !list.length) return [];
+      const m = new Map();
+      list.forEach(p => {
+        const key = `${p.ref}||${p.libelle}`;
+        const ex = m.get(key);
+        if (!ex) m.set(key, { ...p, nb_releves: 1 });
+        else {
+          ex.nb_releves++;
+          if ((p.date_releve || '') > (ex.date_releve || '')) {
+            ex.prix_releve_ht = p.prix_releve_ht; ex.prix_promo_ht = p.prix_promo_ht; ex.date_releve = p.date_releve;
+          }
+        }
+      });
+      return Array.from(m.values()).sort((x, y) =>
+        (x.classif || '').localeCompare(y.classif || '', 'fr') || (x.libelle || '').localeCompare(y.libelle || '', 'fr'));
+    };
+    const concByClient = new Map();     // `${secteur}||${tir_id}` → [produits]
+    const concByArticleSec = new Map(); // `${secteur}||${art_id}` → [produits]
+    q5.recordset.forEach(row => {
+      const prod = {
+        ref: row.ref, libelle: row.libelle || row.ref, marque: row.marque || null,
+        classif: row.classif || 'Indéfini', match_type: row.match_type,
+        prix_releve_ht: row.prix_releve_ht, prix_promo_ht: row.prix_promo_ht, date_releve: row.date_releve,
+      };
+      if (row.tir_id != null) {
+        const ck = `${row.secteur}||${row.tir_id}`;
+        if (!concByClient.has(ck)) concByClient.set(ck, []);
+        concByClient.get(ck).push(prod);
+      }
+      if (row.art_id != null) {
+        const ak = `${row.secteur}||${row.art_id}`;
+        if (!concByArticleSec.has(ak)) concByArticleSec.set(ak, []);
+        concByArticleSec.get(ak).push(prod);
+      }
+    });
+
     // ───── Agrégation JS : tree secteur → DIM (marque/sous-fam/classe…) → article ─
     // Mesure principale = CARTONS = PLVD1 (PLVQTE/PLVD3 si PLVD3<>0, sinon PLVQTE).
     // Garde aussi qté et ca pour le calcul PV.
@@ -469,6 +575,7 @@ async function fetchPenetrationData(pool, query) {
             articleGaps.push({
               art_id: node.art_id, code: node.code, designation: node.designation,
               nbAbsents: clients.length, nbBuyers: node.buyers.size, clients,
+              concurrents: dedupeConc(concByArticleSec.get(`${sec}||${node.art_id}`)),
             });
             absents.forEach(t => {
               if (!clientMissing.has(t)) clientMissing.set(t, []);
@@ -487,6 +594,7 @@ async function fetchPenetrationData(pool, query) {
             missing.sort((a, b) => (a.code || '').localeCompare(b.code || '', 'fr', { numeric: true }));
             clientsArr.push({
               ...info, nbMissing: missing.length, nbArticlesDim: artMap.size, missingArticles: missing,
+              concurrents: dedupeConc(concByClient.get(`${sec}||${t}`)),
             });
           });
           clientsArr.sort((a, b) => b.nbMissing - a.nbMissing);
@@ -496,6 +604,22 @@ async function fetchPenetrationData(pool, query) {
     });
     gapsByArticle.sort((a, b) => a.secteur.localeCompare(b.secteur, 'fr') || a.dim_value.localeCompare(b.dim_value, 'fr'));
     gapsByClient.sort((a, b) => a.secteur.localeCompare(b.secteur, 'fr') || a.dim_value.localeCompare(b.dim_value, 'fr'));
+
+    // ───── Concurrents : liste plate secteur → client → produits (pour export Excel).
+    // Limitée à l'univers client filtré (présent dans tirInfoMap).
+    const concurrents = [];
+    concByClient.forEach((list, key) => {
+      const sep = key.indexOf('||');
+      const sec = key.slice(0, sep);
+      const tid = parseInt(key.slice(sep + 2), 10);
+      const info = tirInfoMap.get(tid);
+      if (!info) return;
+      concurrents.push({
+        secteur: sec, tir_id: tid, nom: info.nom, code: info.code, commercial: info.commercial || '',
+        products: dedupeConc(list),
+      });
+    });
+    concurrents.sort((a, b) => a.secteur.localeCompare(b.secteur, 'fr') || (a.nom || '').localeCompare(b.nom || '', 'fr'));
 
     // ───── Pricing : nouvelle hiérarchie SECTEUR → CLIENT → ARTICLE ─────────
     // PV chez le client : utilise pvByClientArt (lookup q2).
@@ -609,6 +733,7 @@ async function fetchPenetrationData(pool, query) {
       gapsByArticle,
       gapsByClient,
       pricingBySecteur,
+      concurrents,
       chart: {
         secteurs: chartSecteurs,
         series: chartSeries,
@@ -774,7 +899,7 @@ async function buildPenetrationExcel(data) {
   wsSyn.addRow({ k:'Filtre clients',           v:filtres.cliactif || 'O' });
   wsSyn.addRow({ k:'Base',                     v:`${data.db?.database || ''}${data.db?.societe ? ' · '+data.db.societe : ''}` });
   wsSyn.addRow({ k:'Secteurs filtrés',         v:(filtres.secteurs||[]).join(', ') || '(tous)' });
-  wsSyn.addRow({ k:'Marques filtrées',         v:(filtres.marques||[]).join(', ') || '(toutes)' });
+  wsSyn.addRow({ k:`${dimL} filtrée(s)`,        v:(filtres.marques||[]).join(', ') || '(toutes)' });
   wsSyn.addRow({ k:'Familles filtrées',        v:(filtres.familles||[]).join(', ') || '(toutes)' });
   wsSyn.addRow({ k:'Clients portefeuille',     v:k.totalClientsPortefeuille||0 }).getCell('v').numFmt = numFmt;
   wsSyn.addRow({ k:'Acheteurs (période)',      v:k.nbAcheteurs||0 }).getCell('v').numFmt = numFmt;
@@ -935,6 +1060,40 @@ async function buildPenetrationExcel(data) {
     wsChart.columns.forEach(col => { col.width = 20; });
   }
 
+  // ── Sheet 7 : Concurrents relevés par client ────────────────────────────
+  if ((data.concurrents || []).length) {
+    const wsConc = wb.addWorksheet('Concurrents par client');
+    wsConc.columns = [
+      { header:'Secteur', key:'sec', width:25 },
+      { header:'Client', key:'cli', width:35 },
+      { header:'Code client', key:'cco', width:14 },
+      { header:'Commercial', key:'com', width:22 },
+      { header:'Produit concurrent', key:'lib', width:40 },
+      { header:'Référence', key:'ref', width:18 },
+      { header:'Marque', key:'mar', width:18 },
+      { header:`Classification (${dimL})`, key:'cla', width:22 },
+      { header:'Type relevé', key:'typ', width:16 },
+      { header:'Prix relevé HT', key:'pr', width:14 },
+      { header:'Promo HT', key:'pp', width:13 },
+      { header:'Dernier relevé', key:'dat', width:13 },
+      { header:'Nb relevés', key:'nb', width:11 },
+    ];
+    wsConc.getRow(1).eachCell(c => { c.fill=headerFill; c.font=headerFont; c.border=border; c.alignment={horizontal:'center',wrapText:true}; });
+    wsConc.views = [{ state:'frozen', ySplit:1 }];
+    data.concurrents.forEach(entry => {
+      (entry.products || []).forEach(p => {
+        const r = wsConc.addRow({
+          sec:entry.secteur, cli:entry.nom, cco:entry.code, com:entry.commercial,
+          lib:p.libelle, ref:p.ref, mar:p.marque || '', cla:p.classif || 'Indéfini',
+          typ:p.match_type, pr:p.prix_releve_ht, pp:p.prix_promo_ht, dat:p.date_releve, nb:p.nb_releves,
+        });
+        r.getCell('pr').numFmt = eurFmt;
+        r.getCell('pp').numFmt = eurFmt;
+        r.getCell('nb').numFmt = numFmt;
+      });
+    });
+  }
+
   return await wb.xlsx.writeBuffer();
 }
 
@@ -983,7 +1142,7 @@ function buildPenetrationHTML(data) {
     · Filtre clients : ${esc(f.cliactif || 'O')}
     · Base : ${esc(data.db?.database || '')}${data.db?.societe ? ' · '+esc(data.db.societe) : ''}
     · Secteurs : ${(f.secteurs||[]).map(esc).join(', ') || '(tous)'}
-    · Marques : ${(f.marques||[]).map(esc).join(', ') || '(toutes)'}
+    · ${esc(dimL)} : ${(f.marques||[]).map(esc).join(', ') || '(toutes)'}
     · Familles : ${(f.familles||[]).map(esc).join(', ') || '(toutes)'}
     · Généré le ${new Date(data.generatedAt).toLocaleString('fr-FR')}
   </div>
@@ -1025,7 +1184,11 @@ function buildPenetrationHTML(data) {
         const pct = tot > 0 ? art.nbAbsents / tot * 100 : 0;
         const cliList = (art.clients || []).slice(0, 30).map(c => esc(c.nom)).join(' · ');
         const extra = art.clients.length > 30 ? ` <i>(+${art.clients.length - 30} autres)</i>` : '';
-        html += `<div class="gap-row"><b>${esc(entry.secteur)} · ${esc(entry.dim_value)} · ${esc(art.code)}</b> ${esc(art.designation || '')}<span class="count">${art.nbAbsents}/${tot} (${fmt(pct, 1)}%)</span><br><small>${cliList}${extra}</small></div>`;
+        const concList = (art.concurrents || []).slice(0, 15).map(p =>
+          `${esc(p.libelle)}${p.marque ? ' ('+esc(p.marque)+')' : ''}${p.prix_releve_ht!=null ? ' '+fmtEur(p.prix_releve_ht,2) : ''}`).join(' · ');
+        const concHtml = concList
+          ? `<br><small style="color:#1565c0">🆚 ${concList}${art.concurrents.length > 15 ? ' …' : ''}</small>` : '';
+        html += `<div class="gap-row"><b>${esc(entry.secteur)} · ${esc(entry.dim_value)} · ${esc(art.code)}</b> ${esc(art.designation || '')}<span class="count">${art.nbAbsents}/${tot} (${fmt(pct, 1)}%)</span><br><small>${cliList}${extra}</small>${concHtml}</div>`;
       });
     });
   }
