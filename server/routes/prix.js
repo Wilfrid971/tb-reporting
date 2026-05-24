@@ -212,8 +212,14 @@ async function fetchPenetrationData(pool, query) {
                        : (cliactifRaw === 'all' ? '' : 'O'));
     // Période N-2 : même plage de dates décalée de 2 ans en arrière
     const shiftYears = (dateStr, n) => {
-      const [y, m, d] = dateStr.split('-');
-      return `${parseInt(y) + n}-${m}-${d}`;
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const year = y + n;
+      // Clamp au dernier jour du mois si le jour n'existe pas (29/02 → 28/02 en
+      // année non bissextile) — sinon SQL Server rejette la date (erreur de conversion).
+      const lastDay = new Date(year, m, 0).getDate();
+      const day = Math.min(d, lastDay);
+      const pad = (x) => String(x).padStart(2, '0');
+      return `${year}-${pad(m)}-${pad(day)}`;
     };
     const dN2  = shiftYears(p.date_debut, -2);
     const fN2  = shiftYears(p.date_fin,   -2);
@@ -265,6 +271,13 @@ async function fetchPenetrationData(pool, query) {
     const repInList     = repids.map((_, i) => `@repid${i}`).join(',');
     const repCliF       = repids.length ? `AND tc.REPID IN (${repInList})` : '';
     const repPvF        = repids.length ? `AND pv.TIRID_REP IN (${repInList})` : '';
+    // Filtres CLIENT pour les requêtes de relevés (alias TIERS = t) : un relevé est
+    // rattaché au client où il a eu lieu (r.TIRID → t.TIRID). Garantit que le tableau
+    // prix, le graphe et les agrégats concurrents respectent secteur/cliactif/commercial.
+    const secteurFt   = secteurs.length ? `AND ISNULL(RTRIM(t.TIRACTIVITE),'Non défini') IN (${secteurInList})` : '';
+    const cliActifT   = cliactif ? ` AND t.TIRISACTIF='${cliactif}'` : '';
+    const repFt       = repids.length ? `AND t.REPID IN (${repInList})` : '';
+    const releveCliF  = `${secteurFt}${cliActifT} ${repFt}`;
 
     const bindCommon = (r) => {
       r.input('date_debut', sql.VarChar(10), p.date_debut);
@@ -320,7 +333,7 @@ async function fetchPenetrationData(pool, query) {
         pv.TIRID                                   AS tir_id,
         SUM(pl.PLVMNTNETHT*pn.PINSENSSTATISTIQUE)  AS ca_net_ht,
         SUM(pl.PLVQTE*pn.PINSENSSTATISTIQUE)       AS qte,
-        SUM(pl.PLVQTE / CASE WHEN ISNULL(pl.PLVD3, 0) = 0 THEN 1 ELSE pl.PLVD3 END
+        SUM(CAST(pl.PLVQTE AS float) / CASE WHEN ISNULL(pl.PLVD3, 0) = 0 THEN 1 ELSE pl.PLVD3 END
             * pn.PINSENSSTATISTIQUE) AS cartons,
         SUM(pl.PLVMNTNETHT*pn.PINSENSSTATISTIQUE) / NULLIF(SUM(pl.PLVQTE*pn.PINSENSSTATISTIQUE), 0) AS pv_moyen_ht
       FROM PIECEVENTELIGNES pl WITH (NOLOCK)
@@ -359,8 +372,9 @@ async function fetchPenetrationData(pool, query) {
       FROM releve_resolved r
       JOIN ARTICLES a WITH (NOLOCK) ON a.ARTID = r.resolved_ARTID
       ${dimJoin}
+      LEFT JOIN TIERS t WITH (NOLOCK) ON t.TIRID = r.TIRID
       WHERE r.resolved_ARTID IS NOT NULL
-        ${marqueF} ${familleF}
+        ${marqueF} ${familleF} ${releveCliF}
       GROUP BY r.resolved_ARTID
     `);
     const releveByArt = new Map();
@@ -393,7 +407,7 @@ async function fetchPenetrationData(pool, query) {
       ${dimJoin}
       LEFT JOIN TIERS t WITH (NOLOCK) ON t.TIRID = r.TIRID
       WHERE r.resolved_ARTID IS NOT NULL
-        ${marqueF} ${familleF}
+        ${marqueF} ${familleF} ${releveCliF}
       ORDER BY t.TIRACTIVITE, t.TIRSOCIETE, r.DATE_RELEVE DESC
     `);
     const pricingByArt = new Map();
@@ -436,7 +450,7 @@ async function fetchPenetrationData(pool, query) {
       ${dimJoin}
       LEFT JOIN TIERS t WITH (NOLOCK) ON t.TIRID = r.TIRID
       WHERE r.match_type <> 'direct'
-        ${marqueF} ${familleF}
+        ${marqueF} ${familleF} ${releveCliF}
     `);
     // Dédup par produit (réf + libellé) : conserve le relevé le plus récent + compte.
     const dedupeConc = (list) => {
