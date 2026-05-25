@@ -299,15 +299,19 @@ async function initFilters(){
   if (data.bornes?.min_date) qs('sel-date-debut').min = data.bornes.min_date;
   if (data.bornes?.max_date) qs('sel-date-fin').max   = data.bornes.max_date;
 
-  setupMS('ms-secteurs', (data.secteurs||[]).map(s => ({ id:s, label:s })), SELECTED_SECTEURS, 'Tous les secteurs', load);
-  setupMS('ms-marques',  (data.marques||[]).map(m  => ({ id:m, label:m })), SELECTED_MARQUES,  'Toutes les marques', load);
+  // Modèle "appliquer au clic" : les sélecteurs ne lancent plus le rapport (lourd
+  // sur gros volume) — ils marquent juste les filtres comme modifiés (markDirty).
+  // L'affichage se fait au clic sur « Actualiser ». La dropdown dimension reste
+  // rafraîchie (requête légère) sur changement de dimension/famille.
+  setupMS('ms-secteurs', (data.secteurs||[]).map(s => ({ id:s, label:s })), SELECTED_SECTEURS, 'Tous les secteurs', markDirty);
+  setupMS('ms-marques',  (data.marques||[]).map(m  => ({ id:m, label:m })), SELECTED_MARQUES,  'Toutes les marques', markDirty);
   setupMS('ms-familles', (data.familles||[]).map(f => ({ id:f, label:f })), SELECTED_FAMILLES, 'Toutes les familles', onFamilleChange);
-  setupMS('ms-reps',     (data.commerciaux||[]).map(c => ({ id:c.TIRID, label:c.nom })), SELECTED_REPS, 'Tous les commerciaux', load);
+  setupMS('ms-reps',     (data.commerciaux||[]).map(c => ({ id:c.TIRID, label:c.nom })), SELECTED_REPS, 'Tous les commerciaux', markDirty);
 
-  qs('sel-cliactif').onchange    = load;
-  qs('sel-tva').onchange         = load;
-  qs('sel-date-debut').onchange  = load;
-  qs('sel-date-fin').onchange    = load;
+  qs('sel-cliactif').onchange    = markDirty;
+  qs('sel-tva').onchange         = markDirty;
+  qs('sel-date-debut').onchange  = markDirty;
+  qs('sel-date-fin').onchange    = markDirty;
   qs('sel-dim').onchange         = onDimChange;
 
   const p = new URLSearchParams(location.search);
@@ -395,21 +399,21 @@ async function refreshDimDropdown(dim){
   // Élague les valeurs sélectionnées qui ne sont plus proposées (sorties du périmètre
   // famille), sinon elles resteraient envoyées au backend comme filtre fantôme.
   Array.from(SELECTED_MARQUES).forEach(v => { if (!values.includes(v)) SELECTED_MARQUES.delete(v); });
-  setupMS('ms-marques', values.map(v => ({ id:v, label:v })), SELECTED_MARQUES, labelAll, load);
+  setupMS('ms-marques', values.map(v => ({ id:v, label:v })), SELECTED_MARQUES, labelAll, markDirty);
 }
 // Changement de classification : les valeurs sélectionnées ne sont plus
 // transposables (marques ≠ classes…), on vide, on recharge la liste, puis on relance.
 async function onDimChange(){
   SELECTED_MARQUES.clear();
   await refreshDimDropdown(qs('sel-dim').value);
-  load();
+  markDirty();
 }
 // Changement de famille : le périmètre d'articles change → la liste des valeurs de
 // dimension aussi. On rafraîchit la dropdown dimension (qui élague les sélections
-// hors périmètre) avant de relancer le rapport.
+// hors périmètre), puis on marque les filtres comme modifiés (rendu au clic Actualiser).
 async function onFamilleChange(){
   await refreshDimDropdown(qs('sel-dim').value);
-  load();
+  markDirty();
 }
 
 function renderKpis(data){
@@ -778,6 +782,19 @@ function renderChart(data){
   });
 }
 
+// Repère visuel "filtres modifiés, à appliquer" : surligne le bouton Actualiser
+// tant que les choix courants n'ont pas été rendus. clearDirty() au terme de load().
+function markDirty(){
+  const b = qs('refresh-btn'); if (!b) return;
+  b.style.background = '#ff9800'; b.style.color = '#fff'; b.style.fontWeight = '700';
+  b.title = 'Filtres modifiés — cliquez pour actualiser';
+}
+function clearDirty(){
+  const b = qs('refresh-btn'); if (!b) return;
+  b.style.background = ''; b.style.color = ''; b.style.fontWeight = '';
+  b.title = '';
+}
+
 let _firstLoadDone = false;
 async function load(){
   const btn = qs('refresh-btn'), dot = qs('status-dot'), banner = qs('error-banner');
@@ -821,7 +838,7 @@ async function load(){
       .forEach(id => qs(id).innerHTML = '');
     if (_priceChart) { _priceChart.destroy(); _priceChart = null; }
   } finally {
-    btn.disabled = false; btn.textContent = '↻ Actualiser';
+    btn.disabled = false; btn.textContent = '↻ Actualiser'; clearDirty();
   }
 }
 
