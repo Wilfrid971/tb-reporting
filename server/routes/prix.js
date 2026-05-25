@@ -187,6 +187,13 @@ router.get('/dim-values', async (req, res) => {
     const pool = await resolvePrixPool(req);
     const dimRaw = String(req.query.dim || 'ARTMARQUE').trim();
     const dim = ALLOWED_DIMS.has(dimRaw) ? dimRaw : 'ARTMARQUE';
+    // Filtre famille : restreint les valeurs proposées aux articles des familles
+    // choisies (sinon la dropdown listerait les classifications de TOUS les articles).
+    const familles = parseCsv(req.query.familles, 50);
+    const famInList = familles.map((_, i) => `@fam${i}`).join(',');
+    const famFilter = familles.length
+      ? `AND a.AFMID IN (SELECT AFMID FROM ARTFAMILLES WITH (NOLOCK) WHERE AFMINTITULE IN (${famInList}))`
+      : '';
     let q;
     if (dim === 'ARTFAMILLE') {
       // Famille : ARTICLES uniquement (pas d'équivalent côté produits concurrents).
@@ -194,17 +201,25 @@ router.get('/dim-values', async (req, res) => {
            FROM ARTFAMILLES af WITH (NOLOCK)
            JOIN ARTICLES a WITH (NOLOCK) ON a.AFMID=af.AFMID
            WHERE af.AFMINTITULE IS NOT NULL AND LEN(RTRIM(af.AFMINTITULE))>0 AND a.ARTISSTATISTIQUE='O'
+           ${famFilter}
            ORDER BY val`;
     } else {
-      // Valeurs sur NOS articles, unies aux valeurs portées par les concurrents.
-      const artPart = `SELECT RTRIM(a.${dim}) AS val FROM ARTICLES a WITH (NOLOCK)
-                       WHERE a.${dim} IS NOT NULL AND LEN(RTRIM(a.${dim}))>0 AND a.ARTISSTATISTIQUE='O'`;
-      const concPart = concDimValuesSubquery(dim);
+      // Valeurs sur NOS articles (filtrées par famille si demandé)…
+      // DISTINCT requis : sans concPart, ce SELECT alimente directement la liste
+      // (l'UNION dédupliquait sinon).
+      const artPart = `SELECT DISTINCT RTRIM(a.${dim}) AS val FROM ARTICLES a WITH (NOLOCK)
+                       WHERE a.${dim} IS NOT NULL AND LEN(RTRIM(a.${dim}))>0 AND a.ARTISSTATISTIQUE='O' ${famFilter}`;
+      // …unies aux valeurs des produits concurrents UNIQUEMENT si aucun filtre famille
+      // n'est actif : les concurrents (EXT_Produits) n'ont pas de rattachement famille,
+      // donc hors périmètre dès qu'on restreint à une famille.
+      const concPart = familles.length ? null : concDimValuesSubquery(dim);
       q = concPart
         ? `SELECT val FROM (${artPart} UNION ${concPart}) u ORDER BY val`
         : `${artPart} ORDER BY val`;
     }
-    const rows = await pool.request().query(q);
+    const r = pool.request();
+    familles.forEach((f, i) => r.input(`fam${i}`, sql.NVarChar(255), f));
+    const rows = await r.query(q);
     res.json({ dim, values: rows.recordset.map(x => x.val) });
   } catch (err) {
     console.error('[PRIX:dim-values]', err.message);

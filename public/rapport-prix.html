@@ -301,7 +301,7 @@ async function initFilters(){
 
   setupMS('ms-secteurs', (data.secteurs||[]).map(s => ({ id:s, label:s })), SELECTED_SECTEURS, 'Tous les secteurs', load);
   setupMS('ms-marques',  (data.marques||[]).map(m  => ({ id:m, label:m })), SELECTED_MARQUES,  'Toutes les marques', load);
-  setupMS('ms-familles', (data.familles||[]).map(f => ({ id:f, label:f })), SELECTED_FAMILLES, 'Toutes les familles', load);
+  setupMS('ms-familles', (data.familles||[]).map(f => ({ id:f, label:f })), SELECTED_FAMILLES, 'Toutes les familles', onFamilleChange);
   setupMS('ms-reps',     (data.commerciaux||[]).map(c => ({ id:c.TIRID, label:c.nom })), SELECTED_REPS, 'Tous les commerciaux', load);
 
   qs('sel-cliactif').onchange    = load;
@@ -355,10 +355,12 @@ async function initFilters(){
     });
   }
 
-  // Si la classification retenue n'est pas Marque, on remplace la liste des
-  // marques (chargée par /filters) par les valeurs de cette dimension.
+  // Si la classification retenue n'est pas Marque, on remplace la liste des marques
+  // (chargée par /filters) par les valeurs de cette dimension. On rafraîchit aussi
+  // quand des familles sont déjà sélectionnées (état restauré), pour appliquer le
+  // périmètre famille à la dropdown dès le boot.
   const finalDim = qs('sel-dim').value;
-  if (finalDim && finalDim !== 'ARTMARQUE') await refreshDimDropdown(finalDim);
+  if ((finalDim && finalDim !== 'ARTMARQUE') || SELECTED_FAMILLES.size) await refreshDimDropdown(finalDim);
 }
 
 function skeleton(){
@@ -385,15 +387,27 @@ async function refreshDimDropdown(dim){
   let values = [];
   try {
     const p = new URLSearchParams(); applyDbParam(p); p.set('dim', dim);
+    // Les valeurs proposées dépendent des familles sélectionnées (périmètre articles).
+    if (SELECTED_FAMILLES.size) p.set('familles', Array.from(SELECTED_FAMILLES).join(','));
     const r = await fetch(`${API}/dim-values?${p}`).then(x => x.json());
     values = r.values || [];
   } catch (e) { values = []; }
+  // Élague les valeurs sélectionnées qui ne sont plus proposées (sorties du périmètre
+  // famille), sinon elles resteraient envoyées au backend comme filtre fantôme.
+  Array.from(SELECTED_MARQUES).forEach(v => { if (!values.includes(v)) SELECTED_MARQUES.delete(v); });
   setupMS('ms-marques', values.map(v => ({ id:v, label:v })), SELECTED_MARQUES, labelAll, load);
 }
 // Changement de classification : les valeurs sélectionnées ne sont plus
 // transposables (marques ≠ classes…), on vide, on recharge la liste, puis on relance.
 async function onDimChange(){
   SELECTED_MARQUES.clear();
+  await refreshDimDropdown(qs('sel-dim').value);
+  load();
+}
+// Changement de famille : le périmètre d'articles change → la liste des valeurs de
+// dimension aussi. On rafraîchit la dropdown dimension (qui élague les sélections
+// hors périmètre) avant de relancer le rapport.
+async function onFamilleChange(){
   await refreshDimDropdown(qs('sel-dim').value);
   load();
 }
