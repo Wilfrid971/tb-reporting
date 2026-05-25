@@ -15,8 +15,23 @@ EXT_Produits	9	IdProdHF	int	NULL	NO	NULL
 EXT_Produits	10	CODES_BARRES	varchar	500	YES	NULL	
 EXT_Produits	11	IDMARQUE	int	NULL	YES	NULL	
 EXT_Produits	12	PHOTO_PATH	varchar	500	YES	NULL	
-EXT_Produits	13	REPCODE	varchar	20	YES	NULL	
-EXT_Produits	14	DATE_CREATE	datetime	NULL	YES	(getdate())	
+EXT_Produits	13	REPCODE	varchar	20	YES	NULL
+EXT_Produits	14	DATE_CREATE	datetime	NULL	YES	(getdate())
+EXT_Produits	15	ID_SOUS_FAMILLE	int	NULL	YES	NULL
+EXT_Produits	16	ID_CATEGORIE	int	NULL	YES	NULL
+EXT_Produits	17	ID_CLASSE	int	NULL	YES	NULL
+EXT_Produits	18	ID_NATURE	int	NULL	YES	NULL
+EXT_Produits	19	ID_COLLECTION	int	NULL	YES	NULL
+EXT_Classification	1	IDCLASSIFICATION	int	NULL	NO	NULL	PK
+EXT_Classification	2	SECTION	varchar	20	NO	NULL
+EXT_Classification	3	LIBELLE	varchar	150	NO	NULL
+EXT_Classification	4	ACTIF	char	1	NO	NULL
+EXT_Classification	5	DATE_CREATE	datetime	NULL	YES	NULL
+EXT_Classification	6	DATE_MODIF	datetime	NULL	YES	NULL
+-- EXT_Produits.ID_SOUS_FAMILLE/ID_CATEGORIE/ID_CLASSE/ID_NATURE/ID_COLLECTION → FK logique EXT_Classification.IDCLASSIFICATION
+-- (PK unique tous SECTION confondus : la FK pointe directement la bonne ligne, pas besoin de filtrer SECTION).
+-- Mapping dimension rapport prix : ARTSOUSFAMILLE→ID_SOUS_FAMILLE, ARTCATEGORIE→ID_CATEGORIE, ARTCLASSE→ID_CLASSE,
+-- ARTNATURE→ID_NATURE, ARTCOLLECTION→ID_COLLECTION, ARTMARQUE→Marque, ARTFAMILLE→(pas d'équivalent concurrent).
 EXT_RELEVE_PRIX	1	ID	varchar	50	NO	NULL	PK
 EXT_RELEVE_PRIX	2	TIRID	int	NULL	NO	NULL	
 EXT_RELEVE_PRIX	3	TIRCODE	varchar	50	NO	NULL	

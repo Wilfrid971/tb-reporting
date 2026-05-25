@@ -76,6 +76,8 @@ const RELEVE_RESOLVED_CTE = `
            a_direct.ARTID AS artid_direct,
            a_direct.ARTCODE AS artcode_direct,
            p.IDProduit, p.[Libellé] AS prod_libelle, p.Marque AS prod_marque, p.Code_Produit AS prod_code,
+           p.ID_SOUS_FAMILLE AS prod_id_sousfam, p.ID_CATEGORIE AS prod_id_categorie,
+           p.ID_CLASSE AS prod_id_classe, p.ID_NATURE AS prod_id_nature, p.ID_COLLECTION AS prod_id_collection,
            ac.ARTID AS artid_via_concurrent
     FROM EXT_RELEVE_PRIX r WITH (NOLOCK)
     LEFT JOIN ARTICLES a_direct WITH (NOLOCK)
@@ -418,17 +420,37 @@ async function fetchPenetrationData(pool, query) {
 
     // ───── Q5 : produits concurrents relevés (y compris non résolus), pour enrichir
     // les gaps. classif = dimension de NOTRE article si le relevé est résolu ;
-    // sinon la marque (quand dim=Marque) ou 'Indéfini' (en attendant un champ de
-    // classification côté EXT_Produits — upgrade base prévu). On exclut match_type
-    // 'direct' (= relevé sur une de nos propres références, pas un produit concurrent).
+    // sinon on dérive la classification PROPRE du produit concurrent (EXT_Produits a
+    // gagné 5 FK ID_* → EXT_Classification.LIBELLE), avec fallback marque (dim=Marque)
+    // puis 'Indéfini'. On exclut match_type 'direct' (= relevé sur une de nos propres
+    // références, pas un produit concurrent).
+    // Dimension → colonne FK de classification côté EXT_Produits (exposée par la CTE).
+    // ARTMARQUE → Marque (géré à part) ; ARTFAMILLE → pas d'équivalent concurrent.
+    const PROD_CLASSIF_COL = {
+      ARTSOUSFAMILLE: 'prod_id_sousfam', ARTCATEGORIE: 'prod_id_categorie',
+      ARTCLASSE: 'prod_id_classe', ARTNATURE: 'prod_id_nature', ARTCOLLECTION: 'prod_id_collection',
+    };
+    const prodClassifCol = PROD_CLASSIF_COL[dim] || null;
+    // FK → PK unique : pas besoin de filtrer SECTION, l'ID pointe la bonne ligne.
+    const concClassifJoin = prodClassifCol
+      ? `LEFT JOIN EXT_Classification pc WITH (NOLOCK) ON pc.IDCLASSIFICATION = r.${prodClassifCol}`
+      : '';
     const concClassifSql = `
       CASE
         WHEN r.resolved_ARTID IS NOT NULL THEN ${dimSelect}
         ${dim === 'ARTMARQUE'
           ? `WHEN NULLIF(RTRIM(COALESCE(r.MARQUE, r.prod_marque)),'') IS NOT NULL THEN RTRIM(COALESCE(r.MARQUE, r.prod_marque))`
-          : ''}
+          : prodClassifCol
+            ? `WHEN NULLIF(RTRIM(pc.LIBELLE),'') IS NOT NULL THEN RTRIM(pc.LIBELLE)`
+            : ''}
         ELSE N'Indéfini'
       END`;
+    // Filtre dimension étendu aux produits concurrents : on filtre sur l'expression
+    // classif elle-même (= ce qui est affiché), pas sur a.<dim>. Un relevé reste donc
+    // visible si la dimension de NOTRE article résolu OU la classif propre du concurrent
+    // matche la sélection — concClassifSql couvre les deux via sa branche resolved.
+    // Spécifique à Q5 : marqueF (a.<dim>) reste utilisé tel quel par Q2/Q3/Q4.
+    const marqueFConc = marques.length ? `AND ${concClassifSql} IN (${marqueInList})` : '';
     const r5 = pool.request();
     bindCommon(r5);
     const q5 = await r5.query(`
@@ -448,9 +470,10 @@ async function fetchPenetrationData(pool, query) {
       FROM releve_resolved r
       LEFT JOIN ARTICLES a WITH (NOLOCK) ON a.ARTID = r.resolved_ARTID
       ${dimJoin}
+      ${concClassifJoin}
       LEFT JOIN TIERS t WITH (NOLOCK) ON t.TIRID = r.TIRID
       WHERE r.match_type <> 'direct'
-        ${marqueF} ${familleF} ${releveCliF}
+        ${marqueFConc} ${familleF} ${releveCliF}
     `);
     // Dédup par produit (réf + libellé) : conserve le relevé le plus récent + compte.
     const dedupeConc = (list) => {
