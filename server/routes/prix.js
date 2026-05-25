@@ -117,11 +117,16 @@ router.get('/filters', async (req, res) => {
         FROM TIERS WITH (NOLOCK) WHERE TIRTYPE='C' AND TIRISACTIF='O'
         ORDER BY secteur
       `).then(r => r.recordset.map(x => x.secteur)),
+      // Marques (dimension ARTMARQUE par défaut au boot) : nos articles UNION les
+      // marques des produits concurrents, pour que la vue initiale soit complète.
       pool.request().query(`
-        SELECT DISTINCT RTRIM(ARTMARQUE) AS marque
-        FROM ARTICLES WITH (NOLOCK)
-        WHERE ARTMARQUE IS NOT NULL AND LEN(RTRIM(ARTMARQUE))>0 AND ARTISSTATISTIQUE='O'
-        ORDER BY marque
+        SELECT val AS marque FROM (
+          SELECT RTRIM(ARTMARQUE) AS val FROM ARTICLES WITH (NOLOCK)
+           WHERE ARTMARQUE IS NOT NULL AND LEN(RTRIM(ARTMARQUE))>0 AND ARTISSTATISTIQUE='O'
+          UNION
+          SELECT RTRIM(Marque) AS val FROM EXT_Produits WITH (NOLOCK)
+           WHERE Marque IS NOT NULL AND LEN(RTRIM(Marque))>0
+        ) u ORDER BY marque
       `).then(r => r.recordset.map(x => x.marque)),
       pool.request().query(`
         SELECT DISTINCT RTRIM(af.AFMINTITULE) AS famille
@@ -154,21 +159,51 @@ router.get('/filters', async (req, res) => {
 // choisie, pour alimenter la dropdown multi-select qui s'adapte à la dimension.
 // ─────────────────────────────────────────────────────────────────────────────
 const ALLOWED_DIMS = new Set(['ARTMARQUE','ARTFAMILLE','ARTSOUSFAMILLE','ARTCATEGORIE','ARTNATURE','ARTCOLLECTION','ARTCLASSE']);
+// Mapping dimension → colonne FK de classification dans EXT_Produits (produits
+// concurrents). Sert à enrichir les dropdowns avec les valeurs portées par les
+// concurrents. ARTMARQUE → EXT_Produits.Marque (cas à part) ; ARTFAMILLE → pas
+// d'équivalent concurrent (donc ARTICLES seul).
+const PROD_CLASSIF_FK = {
+  ARTSOUSFAMILLE: 'ID_SOUS_FAMILLE', ARTCATEGORIE: 'ID_CATEGORIE',
+  ARTCLASSE: 'ID_CLASSE', ARTNATURE: 'ID_NATURE', ARTCOLLECTION: 'ID_COLLECTION',
+};
+// Sous-requête des valeurs de classification portées par les produits concurrents
+// pour la dimension donnée (NULL si la dimension n'a pas d'équivalent concurrent).
+// On se limite aux classifications réellement assignées à un EXT_Produits : une
+// valeur jamais assignée ne pourrait de toute façon jamais matcher le filtre.
+function concDimValuesSubquery(dim) {
+  if (dim === 'ARTMARQUE') {
+    return `SELECT RTRIM(p.Marque) AS val FROM EXT_Produits p WITH (NOLOCK)
+            WHERE p.Marque IS NOT NULL AND LEN(RTRIM(p.Marque))>0`;
+  }
+  const fk = PROD_CLASSIF_FK[dim];
+  if (!fk) return null; // ARTFAMILLE et autres : pas de source concurrent
+  return `SELECT RTRIM(c.LIBELLE) AS val FROM EXT_Classification c WITH (NOLOCK)
+          WHERE c.IDCLASSIFICATION IN (SELECT ${fk} FROM EXT_Produits WITH (NOLOCK) WHERE ${fk} IS NOT NULL)
+            AND c.LIBELLE IS NOT NULL AND LEN(RTRIM(c.LIBELLE))>0`;
+}
 router.get('/dim-values', async (req, res) => {
   try {
     const pool = await resolvePrixPool(req);
     const dimRaw = String(req.query.dim || 'ARTMARQUE').trim();
     const dim = ALLOWED_DIMS.has(dimRaw) ? dimRaw : 'ARTMARQUE';
-    const q = dim === 'ARTFAMILLE'
-      ? `SELECT DISTINCT RTRIM(af.AFMINTITULE) AS val
-         FROM ARTFAMILLES af WITH (NOLOCK)
-         JOIN ARTICLES a WITH (NOLOCK) ON a.AFMID=af.AFMID
-         WHERE af.AFMINTITULE IS NOT NULL AND LEN(RTRIM(af.AFMINTITULE))>0 AND a.ARTISSTATISTIQUE='O'
-         ORDER BY val`
-      : `SELECT DISTINCT RTRIM(a.${dim}) AS val
-         FROM ARTICLES a WITH (NOLOCK)
-         WHERE a.${dim} IS NOT NULL AND LEN(RTRIM(a.${dim}))>0 AND a.ARTISSTATISTIQUE='O'
-         ORDER BY val`;
+    let q;
+    if (dim === 'ARTFAMILLE') {
+      // Famille : ARTICLES uniquement (pas d'équivalent côté produits concurrents).
+      q = `SELECT DISTINCT RTRIM(af.AFMINTITULE) AS val
+           FROM ARTFAMILLES af WITH (NOLOCK)
+           JOIN ARTICLES a WITH (NOLOCK) ON a.AFMID=af.AFMID
+           WHERE af.AFMINTITULE IS NOT NULL AND LEN(RTRIM(af.AFMINTITULE))>0 AND a.ARTISSTATISTIQUE='O'
+           ORDER BY val`;
+    } else {
+      // Valeurs sur NOS articles, unies aux valeurs portées par les concurrents.
+      const artPart = `SELECT RTRIM(a.${dim}) AS val FROM ARTICLES a WITH (NOLOCK)
+                       WHERE a.${dim} IS NOT NULL AND LEN(RTRIM(a.${dim}))>0 AND a.ARTISSTATISTIQUE='O'`;
+      const concPart = concDimValuesSubquery(dim);
+      q = concPart
+        ? `SELECT val FROM (${artPart} UNION ${concPart}) u ORDER BY val`
+        : `${artPart} ORDER BY val`;
+    }
     const rows = await pool.request().query(q);
     res.json({ dim, values: rows.recordset.map(x => x.val) });
   } catch (err) {
