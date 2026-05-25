@@ -686,7 +686,17 @@ function renderGapsByClient(data){
 function renderPricing(data){
   const sec = qs('pricing-section');
   const list = data.pricingBySecteur || [];
-  if (!list.length) { sec.innerHTML = ''; return; }
+  // Pas de relevé pour les filtres courants : on garde la section visible avec un
+  // message explicite (sinon elle "disparaît" et on croit à une fonctionnalité perdue).
+  if (!list.length) {
+    sec.innerHTML = `<div class="section"><div class="section-header">
+      <span class="section-title">💶 Comparatif prix concurrents — par secteur d'activité → client → article</span>
+    </div><div style="padding:16px;text-align:center;color:var(--muted)">
+      Aucun relevé de prix concurrent pour ces filtres (secteur, dimension, famille, période).
+      Élargissez la période ou retirez un filtre (ex. une famille ou une valeur de dimension sans relevé).
+    </div></div>`;
+    return;
+  }
   let html = `<div class="section">
     <div class="section-header">
       <span class="section-title">💶 Comparatif prix concurrents — par secteur d'activité → client → article</span>
@@ -785,6 +795,10 @@ function renderChart(data){
 // Repère visuel "filtres modifiés, à appliquer" : surligne le bouton Actualiser
 // tant que les choix courants n'ont pas été rendus. clearDirty() au terme de load().
 function markDirty(){
+  // Persiste les filtres en cours dès le changement (et pas seulement au load) :
+  // sinon un rafraîchissement navigateur restaurerait le dernier état APPLIQUÉ et
+  // ferait "revenir" la dimension/les filtres en attente d'actualisation.
+  saveState();
   const b = qs('refresh-btn'); if (!b) return;
   b.style.background = '#ff9800'; b.style.color = '#fff'; b.style.fontWeight = '700';
   b.title = 'Filtres modifiés — cliquez pour actualiser';
