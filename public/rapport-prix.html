@@ -785,6 +785,10 @@ function renderChart(data){
 // Repère visuel "filtres modifiés, à appliquer" : surligne le bouton Actualiser
 // tant que les choix courants n'ont pas été rendus. clearDirty() au terme de load().
 function markDirty(){
+  // Persiste les filtres en cours dès le changement (et pas seulement au load) :
+  // sinon un rafraîchissement navigateur restaurerait le dernier état APPLIQUÉ et
+  // ferait "revenir" la dimension/les filtres en attente d'actualisation.
+  saveState();
   const b = qs('refresh-btn'); if (!b) return;
   b.style.background = '#ff9800'; b.style.color = '#fff'; b.style.fontWeight = '700';
   b.title = 'Filtres modifiés — cliquez pour actualiser';
