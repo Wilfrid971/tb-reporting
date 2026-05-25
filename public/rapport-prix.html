@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rapport Prix — TB Reporting</title>
+  <title>Pénétration prix — Relevés concurrents — TB Reporting</title>
   <script src="/auth-client.js"></script>
   <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
   <script src="/theme.js"></script>
   <script src="/utils.js"></script>
+  <script src="/vendor/chart.umd.min.js"></script>
   <style>
     :root {
       --bg:#0f1117; --surface:#1a1d2e; --surface2:#1e2235; --border:#2a2d3e;
@@ -16,7 +17,9 @@
     }
     *{box-sizing:border-box;margin:0;padding:0}
     body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
-    html.embedded header{display:none}
+    html.embedded header h1, html.embedded header .nav-link { display: none; }
+    html.embedded header { padding:6px 10px; }
+    html.embedded header #last-update { display:none; }
 
     header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;
       display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
@@ -32,467 +35,798 @@
     #refresh-btn{background:var(--blue);border:none;color:#fff;padding:5px 12px;
       border-radius:6px;font-size:.8rem;cursor:pointer}
     #refresh-btn:disabled{opacity:.5;cursor:not-allowed}
-    .csv-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);
-      padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer}
-    .csv-btn:hover{border-color:var(--green);color:var(--green)}
-
-    select, input[type=date], input[type=number], input[type=search]{
-      background:var(--bg);color:var(--text);border:1px solid var(--border);
-      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer}
-    input[type=search]{min-width:180px;cursor:text}
-
+    select,input[type=date],input[type=number]{background:var(--bg);color:var(--text);
+      border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer}
+    input[type=date]{cursor:text}
+    input[type=number]{width:80px;cursor:text}
+    .ms-wrap{position:relative;display:inline-flex}
+    .ms-btn{background:var(--bg);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:5px 10px;font-size:.8rem;cursor:pointer;
+      display:inline-flex;align-items:center;gap:6px;max-width:230px}
+    .ms-btn span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ms-btn:hover,.ms-btn.open{border-color:var(--blue)}
+    .ms-btn.active{border-color:var(--blue);color:var(--blue);background:rgba(33,150,243,.08)}
+    .ms-btn::after{content:'▾';font-size:.65rem;color:var(--muted);flex-shrink:0}
+    .ms-dd{position:absolute;top:calc(100% + 4px);left:0;
+      min-width:220px;max-height:320px;overflow-y:auto;
+      background:var(--surface);border:1px solid var(--border);
+      border-radius:6px;padding:4px 0;z-index:100;
+      box-shadow:0 6px 18px rgba(0,0,0,.35);display:none}
+    .ms-dd.open{display:block}
+    .ms-dd label{display:flex;align-items:center;gap:8px;padding:5px 12px;
+      font-size:.78rem;cursor:pointer;color:var(--text)}
+    .ms-dd label:hover{background:var(--surface2)}
+    .ms-dd label.all-opt{color:var(--muted);font-style:italic;
+      border-bottom:1px solid var(--border);margin-bottom:3px;padding-bottom:6px}
+    .ms-dd input[type=checkbox]{accent-color:var(--blue);cursor:pointer}
+    .fld-grp{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;color:var(--muted)}
     .container{max-width:1500px;margin:0 auto;padding:var(--gap)}
     .error-banner{background:#2a1a1a;border:1px solid var(--red);border-radius:var(--radius);
       padding:10px 14px;color:var(--red);font-size:.85rem;margin-bottom:var(--gap);display:none}
-
-    /* ── KPI cards ── */
-    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
-      gap:var(--gap);margin-bottom:var(--gap)}
+    .kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--gap);
+      margin-bottom:var(--gap)}
     .kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
       padding:12px 14px}
-    .kpi-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
-    .kpi-val{font-size:1.4rem;font-weight:700}
+    .kpi-label{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+    .kpi-value{font-size:1.4rem;font-weight:700;margin-top:4px;color:var(--text)}
     .kpi-sub{font-size:.72rem;color:var(--muted);margin-top:3px}
-
-    /* ── Sections ── */
+    .kpi-sub.pos{color:var(--green)} .kpi-sub.neg{color:var(--red)}
     .section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
       margin-bottom:var(--gap);overflow:hidden}
     .section-header{display:flex;align-items:center;gap:10px;padding:12px 16px;
-      background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap}
-    .section-icon{font-size:1.1rem}
+      background:var(--surface2);border-bottom:1px solid var(--border)}
     .section-title{font-size:.9rem;font-weight:700}
     .section-sub{font-size:.75rem;color:var(--muted);margin-left:auto}
-
-    /* ── Tables ── */
-    .tbl-wrap{overflow-x:auto;max-height:70vh;overflow-y:auto}
-    table.data{width:100%;border-collapse:collapse;font-size:.78rem}
-    table.data th,table.data td{padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
-    table.data thead th{position:sticky;top:0;background:var(--surface2);color:var(--muted);
-      font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:.7rem;cursor:pointer;user-select:none}
-    table.data thead th:hover{color:var(--text)}
-    table.data thead th.sortable::after{content:' ⇅';color:var(--muted);font-size:.7rem;opacity:.5}
-    table.data thead th.sorted-asc::after{content:' ▲';color:var(--blue);opacity:1}
-    table.data thead th.sorted-desc::after{content:' ▼';color:var(--blue);opacity:1}
-    table.data th.txt,table.data td.txt{text-align:left}
-    table.data tbody tr:hover{background:var(--surface2)}
-    table.data .clickable{cursor:pointer;color:var(--blue)}
-    table.data .clickable:hover{text-decoration:underline}
-
-    .ec-good{color:var(--green)}     /* je suis moins cher (négatif ou nul) */
-    .ec-warn{color:var(--orange)}    /* je suis un peu plus cher (0-5%) */
-    .ec-bad {color:var(--red);font-weight:600}  /* je suis sensiblement plus cher (>5%) */
-    .ec-na  {color:var(--muted)}
-
-    .badge{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.65rem;
-      font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-    .b-direct{background:#1d3a25;color:var(--green)}
-    .b-via   {background:#1d2d3a;color:var(--blue)}
-    .b-conc  {background:#3a2a1d;color:var(--orange)}
-    .b-orph  {background:#3a1d2d;color:var(--red)}
-
-    .empty{padding:30px;text-align:center;color:var(--muted);font-style:italic}
-    .skeleton{animation:pulse 1.4s ease-in-out infinite;background:var(--border);border-radius:4px;display:inline-block;width:60px;height:14px}
+    .tree-table{width:100%;border-collapse:collapse;font-size:.82rem}
+    .tree-table th,.tree-table td{padding:6px 10px;border-bottom:1px solid var(--border);text-align:right}
+    .tree-table th{font-size:.7rem;color:var(--muted);font-weight:700;text-transform:uppercase;
+      letter-spacing:.04em;background:var(--surface2);position:sticky;top:0}
+    .tree-table th:first-child,.tree-table td.lbl{text-align:left}
+    .lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
+    .lvl-1{background:rgba(33,150,243,.07)}
+    .lvl-1 td.lbl{padding-left:10px;font-weight:700;color:var(--text)}
+    .lvl-2 td.lbl{padding-left:30px;font-weight:600;color:#cbd5e1}
+    .lvl-3 td.lbl{padding-left:50px;color:#a8b3c7}
+    .lvl-1 td{border-top:2px solid var(--border)}
+    .toggler{display:inline-block;width:14px;text-align:center;cursor:pointer;
+      color:var(--muted);user-select:none}
+    .toggler:hover{color:var(--blue)}
+    .val-main{font-weight:600}
+    .val-pct{font-size:.72rem;color:var(--muted);margin-left:4px}
+    .val-pct.good{color:var(--green)}
+    .val-pct.avg{color:var(--orange)}
+    .val-pct.bad{color:var(--red)}
+    .muted{color:var(--muted)}
+    .gaps-card{padding:0}
+    .gaps-row{border-top:1px solid var(--border)}
+    .gaps-row:first-child{border-top:none}
+    .gaps-head{padding:10px 16px;display:flex;align-items:center;gap:10px;
+      cursor:pointer;background:var(--surface2)}
+    .gaps-head:hover{background:#272b40}
+    .gaps-head .name{font-weight:700;font-size:.85rem}
+    .gaps-head .count{color:var(--orange);font-size:.78rem;margin-left:auto}
+    .gaps-body{padding:8px 16px 12px 36px;font-size:.78rem;display:none;color:#cbd5e1}
+    .gaps-body.open{display:block}
+    .gaps-body li{padding:3px 0;list-style:disc;margin-left:20px}
+    .gaps-body .cli-cmd{color:var(--muted);font-size:.7rem;margin-left:6px}
+    .gaps-body ul.abs-list,.gaps-body ul.conc-list{margin:0;padding:0}
+    .conc-block{margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)}
+    .conc-title{font-weight:600;color:#90caf9;font-size:.74rem;margin-bottom:2px}
+    .conc-classif{color:#ffb74d;font-size:.7rem}
+    .conc-price{color:#81c784;font-size:.72rem;margin-left:4px}
+    .pricing-table{width:100%;border-collapse:collapse;font-size:.78rem;margin-top:6px}
+    .pricing-table th,.pricing-table td{padding:5px 8px;border-bottom:1px dashed var(--border);text-align:right}
+    .pricing-table th{text-align:left;color:var(--muted);font-weight:700;text-transform:uppercase;
+      letter-spacing:.04em;font-size:.65rem}
+    .pricing-table td:first-child,.pricing-table th:first-child{text-align:left}
+    .skeleton{animation:pulse 1.4s ease-in-out infinite;background:var(--border);border-radius:4px;display:inline-block;height:1em;width:60px}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-
-    /* ── Drill-down modal ── */
-    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;
-      justify-content:center;z-index:100;padding:20px}
-    .modal-bg.open{display:flex}
-    .modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
-      max-width:1100px;width:100%;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}
-    .modal-header{padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface2);
-      display:flex;align-items:center;gap:10px}
-    .modal-header h2{font-size:.95rem;font-weight:700}
-    .modal-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:1.4rem;
-      cursor:pointer;padding:0 5px}
-    .modal-close:hover{color:var(--text)}
-    .modal-body{padding:0;overflow-y:auto;flex:1}
   </style>
   <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
 </head>
 <body>
 
 <header>
-  <h1>💰 Rapport Prix — Relevés concurrents</h1>
+  <h1>💰 Prix concurrents — pénétration</h1>
   <a class="nav-link" href="/tb-reporting.html">← TB Reporting</a>
   <a class="nav-link" href="/dashboard.html">📋 Rapports</a>
-  <a class="nav-link" href="/backoffice.html">⚙️ Backoffice</a>
-  <input type="date" id="f-d0" title="Date de début">
-  <input type="date" id="f-d1" title="Date de fin">
-  <select id="f-tirid" title="Client visité"><option value="">Tous les clients</option></select>
-  <select id="f-marque" title="Marque"><option value="">Toutes marques</option></select>
-  <select id="f-rep" title="Représentant"><option value="">Tous les représentants</option></select>
-  <select id="f-match" title="Type de rapprochement">
-    <option value="">Tous rapprochements</option>
-    <option value="direct">Direct (mon article)</option>
-    <option value="via_concurrent">Via concurrent (mappé)</option>
-    <option value="concurrent_seul">Concurrent seul (non mappé)</option>
-    <option value="orphelin">Orphelin (aucun rapprochement)</option>
+  <div class="fld-grp">📅 <input type="date" id="sel-date-debut"> → <input type="date" id="sel-date-fin"></div>
+  <div class="ms-wrap" id="ms-secteurs"><button class="ms-btn" type="button"><span>Tous les secteurs</span></button><div class="ms-dd"></div></div>
+  <div class="ms-wrap" id="ms-marques"><button class="ms-btn" type="button"><span>Toutes les marques</span></button><div class="ms-dd"></div></div>
+  <div class="ms-wrap" id="ms-familles"><button class="ms-btn" type="button"><span>Toutes les familles</span></button><div class="ms-dd"></div></div>
+  <div class="ms-wrap" id="ms-reps"><button class="ms-btn" type="button"><span>Tous les commerciaux</span></button><div class="ms-dd"></div></div>
+  <select id="sel-dim" title="Dimension de classification article (niveau 2 du tree)">
+    <option value="ARTMARQUE" selected>Marque</option>
+    <option value="ARTFAMILLE">Famille</option>
+    <option value="ARTSOUSFAMILLE">Sous-famille</option>
+    <option value="ARTCATEGORIE">Catégorie</option>
+    <option value="ARTCLASSE">Classe</option>
+    <option value="ARTNATURE">Nature</option>
+    <option value="ARTCOLLECTION">Collection</option>
   </select>
-  <select id="f-mode" title="Mode d'affichage des prix">
-    <option value="ttc">Affichage TTC</option>
-    <option value="ht">Affichage HT</option>
+  <select id="sel-cliactif" title="Clients à inclure">
+    <option value="O" selected>Clients actifs</option>
+    <option value="N">Clients inactifs</option>
+    <option value="all">Tous les clients</option>
+    <option value="fideleN2">Clients fidèles (CA N et N-2)</option>
   </select>
-  <label style="font-size:.75rem;color:var(--muted)">TVA :
-    <input type="number" id="f-tva" value="8.5" min="0" max="100" step="0.1" style="width:60px;cursor:text"> %
-  </label>
-  <input type="search" id="f-q" placeholder="🔍 Recherche article…">
+  <div class="fld-grp" title="TVA pour ramener les prix relevés (saisis TTC) en HT">
+    TVA <input type="number" id="sel-tva" min="0" max="100" step="0.5" value="8.5"> %
+  </div>
   <div class="spacer"></div>
   <div class="hdr-right">
     <span id="status-dot"></span>
     <span id="last-update"></span>
-    <button class="csv-btn" id="csv-btn" title="Export CSV du tableau écarts">⬇ CSV</button>
-    <button id="refresh-btn">↻ Actualiser</button>
+    <button id="refresh-btn" onclick="closeAllDropdowns(); load();">↻ Actualiser</button>
+    <button id="excel-btn" onclick="closeAllDropdowns(); exportExcel();" title="Excel" style="background:#1b5e20;border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer">📊 Excel</button>
+    <button id="pdf-btn" onclick="closeAllDropdowns(); exportPDF();" title="PDF" style="background:#b71c1c;border:none;color:#fff;padding:5px 12px;border-radius:6px;font-size:.8rem;cursor:pointer">🖨️ PDF</button>
   </div>
 </header>
 
 <div class="container">
   <div id="error-banner" class="error-banner"></div>
-
-  <!-- KPIs synthétiques -->
-  <div class="kpi-grid" id="kpis">
-    <div class="kpi-card"><div class="kpi-label">Relevés</div><div class="kpi-val"><span class="skeleton"></span></div></div>
-    <div class="kpi-card"><div class="kpi-label">Références distinctes</div><div class="kpi-val"><span class="skeleton"></span></div></div>
-    <div class="kpi-card"><div class="kpi-label">Clients visités</div><div class="kpi-val"><span class="skeleton"></span></div></div>
-    <div class="kpi-card"><div class="kpi-label">Articles propres couverts</div><div class="kpi-val"><span class="skeleton"></span></div></div>
-    <div class="kpi-card"><div class="kpi-label">Prix relevé moyen</div><div class="kpi-val"><span class="skeleton"></span></div></div>
-  </div>
-
-  <!-- Top à risque -->
-  <div class="section">
-    <div class="section-header">
-      <span class="section-icon">🚨</span>
-      <span class="section-title">Top articles à risque</span>
-      <label style="font-size:.75rem;color:var(--muted)">Seuil écart :
-        <input type="number" id="f-seuil" value="5" min="0" max="100" step="1" style="width:60px;cursor:text"> %
-      </label>
-      <span class="section-sub" id="risques-sub">—</span>
-    </div>
-    <div class="tbl-wrap" style="max-height:380px">
-      <table class="data" id="tbl-risques">
-        <thead>
-          <tr>
-            <th class="txt sortable" data-k="ARTCODE">Article</th>
-            <th class="txt sortable" data-k="designation">Désignation</th>
-            <th class="txt sortable" data-k="marque">Marque</th>
-            <th class="sortable" data-k="nb_releves">Nb relevés</th>
-            <th class="sortable" data-k="nb_clients">Nb clients</th>
-            <th class="sortable" data-k="prix_concurrent_moyen">Prix relevé moy. <span class="th-mode">TTC</span></th>
-            <th class="sortable" data-k="pv_moyen_ht">Mon PV moyen <span class="th-mode">TTC</span></th>
-            <th class="sortable" data-k="ecart_pct">Écart %</th>
-            <th class="sortable" data-k="ca_net_ht">Mon CA HT</th>
-            <th class="sortable" data-k="date_dernier_releve">Dernier relevé</th>
-          </tr>
-        </thead>
-        <tbody><tr><td colspan="10" class="empty">Chargement…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Tableau écarts complet -->
-  <div class="section">
-    <div class="section-header">
-      <span class="section-icon">📊</span>
-      <span class="section-title">Comparatif détaillé par article</span>
-      <span class="section-sub" id="ecarts-sub">—</span>
-    </div>
-    <div class="tbl-wrap">
-      <table class="data" id="tbl-ecarts">
-        <thead>
-          <tr>
-            <th class="txt sortable" data-k="match_type">Type</th>
-            <th class="txt sortable" data-k="reference_article">Réf. relevé</th>
-            <th class="txt sortable" data-k="designation_releve">Désignation</th>
-            <th class="txt sortable" data-k="artcode">Mon article</th>
-            <th class="txt sortable" data-k="marque">Marque</th>
-            <th class="sortable" data-k="nb_releves">Nb</th>
-            <th class="sortable" data-k="nb_clients">Clients</th>
-            <th class="sortable" data-k="prix_min">Min <span class="th-mode">TTC</span></th>
-            <th class="sortable" data-k="prix_moyen">Moyen <span class="th-mode">TTC</span></th>
-            <th class="sortable" data-k="prix_max">Max <span class="th-mode">TTC</span></th>
-            <th class="sortable" data-k="prix_promo_moyen">Promo moy. <span class="th-mode">TTC</span></th>
-            <th class="sortable" data-k="pv_moyen_ht">Mon PV <span class="th-mode">TTC</span></th>
-            <th class="sortable" data-k="ecart_pct">Écart %</th>
-            <th class="sortable" data-k="ca_net_ht">Mon CA HT</th>
-            <th class="sortable" data-k="date_dernier_releve">Dernier</th>
-          </tr>
-        </thead>
-        <tbody><tr><td colspan="15" class="empty">Chargement…</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- Drill-down modal : liste des relevés bruts pour un article -->
-<div class="modal-bg" id="modal-bg">
-  <div class="modal">
-    <div class="modal-header">
-      <span style="font-size:1.1rem">🔎</span>
-      <h2 id="modal-title">Détail des relevés</h2>
-      <button class="modal-close" onclick="closeDetail()">×</button>
-    </div>
-    <div class="modal-body" id="modal-body"></div>
-  </div>
+  <div id="kpis" class="kpi-row"></div>
+  <div id="chart-section"></div>
+  <div id="tree-section" class="section"></div>
+  <div id="gaps-article-section"></div>
+  <div id="gaps-client-section"></div>
+  <div id="pricing-section"></div>
 </div>
 
 <script>
 const API = '/api/prix';
+const STORAGE_KEY = 'rapport-prix:state';
 
-// État global pour tri + filtre texte
-const state = {
-  ecarts:   { rows: [], sortKey: 'nb_releves',  sortDir: 'desc' },
-  risques:  { rows: [], sortKey: 'ca_net_ht',   sortDir: 'desc' },
-};
-
-function qs(id) { return document.getElementById(id); }
-function fmt(n, dec = 0) {
-  if (n === null || n === undefined || isNaN(+n)) return '—';
-  return new Intl.NumberFormat('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(+n);
+const URL_PARAMS = new URLSearchParams(location.search);
+const URL_DBS    = URL_PARAMS.get('dbs')    || '';
+const URL_CONNID = URL_PARAMS.get('connId') || '';
+function applyDbParam(params){
+  if (URL_DBS)    params.set('dbs', URL_DBS);
+  if (URL_CONNID) params.set('connId', URL_CONNID);
+  return params;
 }
-function fmtEur(n, dec = 2) { return n == null || isNaN(+n) ? '—' : fmt(n, dec) + ' €'; }
-function fmtDate(s) {
-  if (!s) return '—';
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+function dbQs(){
+  const p = new URLSearchParams(); applyDbParam(p);
+  const s = p.toString(); return s ? '?' + s : '';
 }
-function escH(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-// JSON-encode pour attribut HTML (double-quote-safe) : JSON puis HTML-escape
-function jsArg(v) { return escH(JSON.stringify(v == null ? null : String(v))); }
-
-function ecartClass(p) {
-  if (p === null || p === undefined || isNaN(+p)) return 'ec-na';
-  const v = +p;
-  if (v >  5) return 'ec-bad';
-  if (v >  0) return 'ec-warn';
-  return 'ec-good';
-}
-
-function badgeMatch(t) {
-  const map = {
-    direct:          ['b-direct', 'Direct'],
-    via_concurrent:  ['b-via',    'Via concurrent'],
-    concurrent_seul: ['b-conc',   'Concurrent'],
-    orphelin:        ['b-orph',   'Orphelin'],
-  };
-  const [cls, lbl] = map[t] || ['b-orph', t || '—'];
-  return `<span class="badge ${cls}">${lbl}</span>`;
-}
-
-function getTva() {
-  const v = parseFloat(qs('f-tva').value);
-  return isFinite(v) && v >= 0 && v <= 100 ? v : 8.5;
-}
-function isHT() { return qs('f-mode').value === 'ht'; }
-// Conversion d'un prix relevé (stocké TTC) vers le mode d'affichage choisi
-function dispReleve(v) {
-  if (v == null || isNaN(+v)) return null;
-  return isHT() ? +v / (1 + getTva() / 100) : +v;
-}
-// Conversion de mon PV (stocké HT) vers le mode d'affichage choisi
-function dispMonPv(v) {
-  if (v == null || isNaN(+v)) return null;
-  return isHT() ? +v : +v * (1 + getTva() / 100);
-}
-
-function buildQS(extra) {
-  const p = new URLSearchParams();
-  const d0 = qs('f-d0').value, d1 = qs('f-d1').value;
-  if (d0) p.set('date_debut', d0);
-  if (d1) p.set('date_fin',   d1);
-  const tirid = qs('f-tirid').value;
-  const marque = qs('f-marque').value;
-  const rep    = qs('f-rep').value;
-  const mt     = qs('f-match').value;
-  if (tirid)  p.set('tirid', tirid);
-  if (marque) p.set('marque', marque);
-  if (rep)    p.set('repcode', rep);
-  if (mt)     p.set('match_type', mt);
-  p.set('tva', getTva());
-  if (extra)  for (const [k, v] of Object.entries(extra)) p.set(k, v);
-  const s = p.toString();
-  return s ? '?' + s : '';
-}
-
-async function loadFilters() {
-  const data = await fetch(`${API}/filters`).then(r => r.json());
-  if (data.error) throw new Error(data.error);
-
-  const selTir = qs('f-tirid');
-  data.clients.forEach(c => {
-    const o = document.createElement('option');
-    o.value = c.TIRID; o.textContent = c.nom;
-    selTir.appendChild(o);
-  });
-  const selMq = qs('f-marque');
-  data.marques.forEach(m => {
-    const o = document.createElement('option'); o.value = m; o.textContent = m;
-    selMq.appendChild(o);
-  });
-  const selRep = qs('f-rep');
-  data.representants.forEach(r => {
-    const o = document.createElement('option'); o.value = r; o.textContent = r;
-    selRep.appendChild(o);
-  });
-
-  // Bornes par défaut : 90j si pas de relevés, sinon dates min/max
-  const b = data.bornes;
-  if (b?.date_max) qs('f-d1').value = b.date_max;
-  else qs('f-d1').value = new Date().toISOString().slice(0, 10);
-  if (b?.date_min) {
-    qs('f-d0').value = b.date_min;
-  } else {
-    const d = new Date(qs('f-d1').value + 'T00:00:00'); d.setDate(d.getDate() - 90);
-    qs('f-d0').value = d.toISOString().slice(0, 10);
+function updateDbBadge(db){
+  if (!db) return;
+  const el = document.getElementById('db-info-badge'); if (!el) return;
+  const parts = [];
+  if (db.database) parts.push(`🗄️ ${db.database}`);
+  if (db.societe)  parts.push(db.societe);
+  if (parts.length) {
+    el.textContent = parts.join(' · ');
+    el.title = db.societe ? `Base : ${db.database}\nSociété : ${db.societe}` : `Base : ${db.database || ''}`;
   }
 }
 
-async function loadKpis() {
-  const data = await fetch(`${API}/kpis${buildQS()}`).then(r => r.json());
-  if (data.error) throw new Error(data.error);
-  const detail =
-    `Direct : ${fmt(data.nb_match_direct || 0)} · ` +
-    `Via concurrent : ${fmt(data.nb_match_via_conc || 0)} · ` +
-    `Concurrent seul : ${fmt(data.nb_match_conc_seul || 0)} · ` +
-    `Orphelin : ${fmt(data.nb_orphelins || 0)}`;
+let SELECTED_SECTEURS = new Set();
+let SELECTED_MARQUES  = new Set();
+let SELECTED_FAMILLES = new Set();
+let SELECTED_REPS     = new Set();
+let LAST_DATA = null;
+
+function qs(id){ return document.getElementById(id); }
+function fmt(n,dec=0){
+  if(n===null||n===undefined||isNaN(n)) return '—';
+  return new Intl.NumberFormat('fr-FR',{minimumFractionDigits:dec,maximumFractionDigits:dec}).format(n);
+}
+function fmtEur(n,dec=0){ return n===null||n===undefined||isNaN(n) ? '—' : fmt(n,dec)+' €'; }
+function fmtPct(n,dec=1){ return n===null||n===undefined||isNaN(n) ? '—' : (n>=0?'+':'')+fmt(n,dec)+' %'; }
+function escH(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+
+function saveState(){
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      date_debut: qs('sel-date-debut')?.value || '',
+      date_fin:   qs('sel-date-fin')?.value   || '',
+      cliactif:   qs('sel-cliactif')?.value   || '',
+      tva:        qs('sel-tva')?.value        || '',
+      dim:        qs('sel-dim')?.value        || '',
+      secteurs: Array.from(SELECTED_SECTEURS),
+      marques:  Array.from(SELECTED_MARQUES),
+      familles: Array.from(SELECTED_FAMILLES),
+      reps:     Array.from(SELECTED_REPS),
+    }));
+  } catch {}
+}
+function loadState(){
+  try {
+    const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+    if (!s) return null;
+    (s.secteurs || []).forEach(x => SELECTED_SECTEURS.add(x));
+    (s.marques  || []).forEach(x => SELECTED_MARQUES.add(x));
+    (s.familles || []).forEach(x => SELECTED_FAMILLES.add(x));
+    (s.reps     || []).forEach(x => SELECTED_REPS.add(x));
+    return s;
+  } catch { return null; }
+}
+
+function setupMS(wrapId, items, selectedSet, btnLabelAll, onChange){
+  const wrap = qs(wrapId);
+  const btn  = wrap.querySelector('.ms-btn');
+  const dd   = wrap.querySelector('.ms-dd');
+  function refreshBtn(){
+    const span = btn.querySelector('span');
+    if(selectedSet.size===0){ span.textContent = btnLabelAll; btn.classList.remove('active'); }
+    else { btn.classList.add('active');
+      span.textContent = selectedSet.size===1 ? Array.from(selectedSet)[0] : `${selectedSet.size} sélectionnés`; }
+  }
+  function render(){
+    let h = `<label class="all-opt"><input type="checkbox" id="${wrapId}-all"${selectedSet.size===0?' checked':''}> Tous</label>`;
+    items.forEach(it => {
+      const checked = selectedSet.has(String(it.id)) ? ' checked' : '';
+      h += `<label><input type="checkbox" value="${escH(it.id)}"${checked}> ${escH(it.label)}</label>`;
+    });
+    dd.innerHTML = h;
+    dd.querySelector(`#${wrapId}-all`).onchange = (e) => {
+      if(e.target.checked){ selectedSet.clear(); render(); refreshBtn(); onChange&&onChange(); }
+      else if(selectedSet.size===0){ e.target.checked = true; }
+    };
+    dd.querySelectorAll('input[type=checkbox][value]').forEach(cb => {
+      cb.onchange = () => {
+        if(cb.checked) selectedSet.add(cb.value); else selectedSet.delete(cb.value);
+        const allCb = dd.querySelector(`#${wrapId}-all`);
+        if(allCb) allCb.checked = selectedSet.size===0;
+        refreshBtn(); onChange&&onChange();
+      };
+    });
+  }
+  btn.onclick = (e) => { e.stopPropagation(); dd.classList.toggle('open'); btn.classList.toggle('open'); };
+  refreshBtn(); render();
+}
+function closeAllDropdowns(){
+  document.querySelectorAll('.ms-dd.open').forEach(o => o.classList.remove('open'));
+  document.querySelectorAll('.ms-btn.open').forEach(o => o.classList.remove('open'));
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.ms-dd')) return;
+  if (e.target.closest('.ms-btn')) return;
+  closeAllDropdowns();
+});
+
+async function initFilters(){
+  const data = await fetch(`${API}/filters${dbQs()}`).then(r => r.json());
+
+  // Bornes dates : par défaut 90 derniers jours, mais on limite par les bornes relevés
+  const today = new Date();
+  const dDef1 = today.toISOString().slice(0,10);
+  const d0 = new Date(today); d0.setDate(d0.getDate() - 90);
+  const dDef0 = d0.toISOString().slice(0,10);
+  qs('sel-date-debut').value = dDef0;
+  qs('sel-date-fin').value   = dDef1;
+  if (data.bornes?.min_date) qs('sel-date-debut').min = data.bornes.min_date;
+  if (data.bornes?.max_date) qs('sel-date-fin').max   = data.bornes.max_date;
+
+  // Modèle "appliquer au clic" : les sélecteurs ne lancent plus le rapport (lourd
+  // sur gros volume) — ils marquent juste les filtres comme modifiés (markDirty).
+  // L'affichage se fait au clic sur « Actualiser ». La dropdown dimension reste
+  // rafraîchie (requête légère) sur changement de dimension/famille.
+  setupMS('ms-secteurs', (data.secteurs||[]).map(s => ({ id:s, label:s })), SELECTED_SECTEURS, 'Tous les secteurs', markDirty);
+  setupMS('ms-marques',  (data.marques||[]).map(m  => ({ id:m, label:m })), SELECTED_MARQUES,  'Toutes les marques', markDirty);
+  setupMS('ms-familles', (data.familles||[]).map(f => ({ id:f, label:f })), SELECTED_FAMILLES, 'Toutes les familles', onFamilleChange);
+  setupMS('ms-reps',     (data.commerciaux||[]).map(c => ({ id:c.TIRID, label:c.nom })), SELECTED_REPS, 'Tous les commerciaux', markDirty);
+
+  qs('sel-cliactif').onchange    = markDirty;
+  qs('sel-tva').onchange         = markDirty;
+  qs('sel-date-debut').onchange  = markDirty;
+  qs('sel-date-fin').onchange    = markDirty;
+  qs('sel-dim').onchange         = onDimChange;
+
+  const p = new URLSearchParams(location.search);
+  if(p.get('secteurs')) p.get('secteurs').split(',').forEach(s => SELECTED_SECTEURS.add(s));
+  if(p.get('marques'))  p.get('marques').split(',').forEach(m => SELECTED_MARQUES.add(m));
+  if(p.get('familles')) p.get('familles').split(',').forEach(f => SELECTED_FAMILLES.add(f));
+  if(p.get('repid'))    p.get('repid').split(',').forEach(r => SELECTED_REPS.add(r));
+  if(p.get('cliactif')) qs('sel-cliactif').value = p.get('cliactif');
+  if(p.get('tva'))      qs('sel-tva').value      = p.get('tva');
+  if(p.get('dim'))      qs('sel-dim').value      = p.get('dim');
+  if(p.get('date_debut')) qs('sel-date-debut').value = p.get('date_debut');
+  if(p.get('date_fin'))   qs('sel-date-fin').value   = p.get('date_fin');
+
+  const saved = loadState();
+  if (saved) {
+    if (saved.date_debut && !p.get('date_debut')) qs('sel-date-debut').value = saved.date_debut;
+    if (saved.date_fin   && !p.get('date_fin'))   qs('sel-date-fin').value   = saved.date_fin;
+    if (saved.cliactif   && !p.get('cliactif'))   qs('sel-cliactif').value   = saved.cliactif;
+    if (saved.tva        && !p.get('tva'))        qs('sel-tva').value        = saved.tva;
+    if (saved.dim        && !p.get('dim'))        qs('sel-dim').value        = saved.dim;
+    document.querySelectorAll('.ms-btn').forEach(b => {
+      const wrap = b.closest('.ms-wrap'); const dd = wrap?.querySelector('.ms-dd'); if (!dd) return;
+      const checks = dd.querySelectorAll('input[type=checkbox][value]');
+      let anyChecked = false;
+      checks.forEach(cb => {
+        let set = null;
+        if (wrap.id === 'ms-secteurs') set = SELECTED_SECTEURS;
+        else if (wrap.id === 'ms-marques')  set = SELECTED_MARQUES;
+        else if (wrap.id === 'ms-familles') set = SELECTED_FAMILLES;
+        else if (wrap.id === 'ms-reps')     set = SELECTED_REPS;
+        if (set && set.has(cb.value)) { cb.checked = true; anyChecked = true; }
+      });
+      const allCb = dd.querySelector('input.all-opt, [id$="-all"]');
+      if (allCb) allCb.checked = !anyChecked;
+      const span = b.querySelector('span');
+      let set = null, labelAll = '';
+      if (wrap.id === 'ms-secteurs') { set = SELECTED_SECTEURS; labelAll = 'Tous les secteurs'; }
+      else if (wrap.id === 'ms-marques')  { set = SELECTED_MARQUES;  labelAll = 'Toutes les marques'; }
+      else if (wrap.id === 'ms-familles') { set = SELECTED_FAMILLES; labelAll = 'Toutes les familles'; }
+      else if (wrap.id === 'ms-reps')     { set = SELECTED_REPS;     labelAll = 'Tous les commerciaux'; }
+      if (set && span) {
+        if (set.size === 0) { span.textContent = labelAll; b.classList.remove('active'); }
+        else { b.classList.add('active'); span.textContent = set.size === 1 ? Array.from(set)[0] : `${set.size} sélectionnés`; }
+      }
+    });
+  }
+
+  // Si la classification retenue n'est pas Marque, on remplace la liste des marques
+  // (chargée par /filters) par les valeurs de cette dimension. On rafraîchit aussi
+  // quand des familles sont déjà sélectionnées (état restauré), pour appliquer le
+  // périmètre famille à la dropdown dès le boot.
+  const finalDim = qs('sel-dim').value;
+  if ((finalDim && finalDim !== 'ARTMARQUE') || SELECTED_FAMILLES.size) await refreshDimDropdown(finalDim);
+}
+
+function skeleton(){
+  qs('kpis').innerHTML = Array.from({length:5}).map(() =>
+    `<div class="kpi-card"><div class="kpi-label"><span class="skeleton"></span></div>
+      <div class="kpi-value"><span class="skeleton" style="width:90px;height:1.4rem"></span></div></div>`).join('');
+  qs('tree-section').innerHTML = '';
+  qs('gaps-article-section').innerHTML = '';
+  qs('gaps-client-section').innerHTML = '';
+  qs('pricing-section').innerHTML = '';
+}
+
+// Libellé court pour la dim affichée
+const DIM_LABELS = {
+  ARTMARQUE: 'Marque', ARTFAMILLE: 'Famille', ARTSOUSFAMILLE: 'Sous-famille',
+  ARTCATEGORIE: 'Catégorie', ARTCLASSE: 'Classe', ARTNATURE: 'Nature', ARTCOLLECTION: 'Collection',
+};
+function dimLbl(d) { return DIM_LABELS[d] || d || 'Dimension'; }
+
+// Recharge la dropdown multi-select (ex-"marques") avec les valeurs de la
+// classification choisie, et ajuste son libellé "Tous/Toutes les …".
+async function refreshDimDropdown(dim){
+  const labelAll = `Toutes les ${dimLbl(dim).toLowerCase()}s`;
+  let values = [];
+  try {
+    const p = new URLSearchParams(); applyDbParam(p); p.set('dim', dim);
+    // Les valeurs proposées dépendent des familles sélectionnées (périmètre articles).
+    if (SELECTED_FAMILLES.size) p.set('familles', Array.from(SELECTED_FAMILLES).join(','));
+    const r = await fetch(`${API}/dim-values?${p}`).then(x => x.json());
+    values = r.values || [];
+  } catch (e) { values = []; }
+  // Élague les valeurs sélectionnées qui ne sont plus proposées (sorties du périmètre
+  // famille), sinon elles resteraient envoyées au backend comme filtre fantôme.
+  Array.from(SELECTED_MARQUES).forEach(v => { if (!values.includes(v)) SELECTED_MARQUES.delete(v); });
+  setupMS('ms-marques', values.map(v => ({ id:v, label:v })), SELECTED_MARQUES, labelAll, markDirty);
+}
+// Changement de classification : les valeurs sélectionnées ne sont plus
+// transposables (marques ≠ classes…), on vide, on recharge la liste, puis on relance.
+async function onDimChange(){
+  SELECTED_MARQUES.clear();
+  await refreshDimDropdown(qs('sel-dim').value);
+  markDirty();
+}
+// Changement de famille : le périmètre d'articles change → la liste des valeurs de
+// dimension aussi. On rafraîchit la dropdown dimension (qui élague les sélections
+// hors périmètre), puis on marque les filtres comme modifiés (rendu au clic Actualiser).
+async function onFamilleChange(){
+  await refreshDimDropdown(qs('sel-dim').value);
+  markDirty();
+}
+
+function renderKpis(data){
+  const k = data.kpis || {};
+  const pctAcheteurs = k.totalClientsPortefeuille > 0
+    ? (k.nbAcheteurs / k.totalClientsPortefeuille * 100) : 0;
+  const periodeN2 = data.periodeN2
+    ? ` · vs ${data.periodeN2.date_debut} → ${data.periodeN2.date_fin}` : '';
   qs('kpis').innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">Relevés</div>
-      <div class="kpi-val">${fmt(data.nb_releves)}</div>
-      <div class="kpi-sub">${data.date_min ? fmtDate(data.date_min) + ' → ' + fmtDate(data.date_max) : '—'}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Références distinctes</div>
-      <div class="kpi-val">${fmt(data.nb_references)}</div>
-      <div class="kpi-sub">${detail}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Clients visités</div>
-      <div class="kpi-val">${fmt(data.nb_clients)}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Articles propres couverts</div>
-      <div class="kpi-val">${fmt(data.nb_articles_propres)}</div>
-      <div class="kpi-sub">Rapprochés à ARTICLES</div></div>
-    <div class="kpi-card"><div class="kpi-label">Prix relevé moyen ${isHT() ? 'HT' : 'TTC'}</div>
-      <div class="kpi-val">${fmtEur(dispReleve(data.prix_releve_moyen))}</div></div>
+    <div class="kpi-card">
+      <div class="kpi-label">Clients portefeuille</div>
+      <div class="kpi-value">${fmt(k.totalClientsPortefeuille)}</div>
+      <div class="kpi-sub">${data.periode?.date_debut} → ${data.periode?.date_fin}${periodeN2}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Acheteurs (période)</div>
+      <div class="kpi-value">${fmt(k.nbAcheteurs)}</div>
+      <div class="kpi-sub">${fmt(pctAcheteurs,1)} % du portefeuille</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Cartons vendus</div>
+      <div class="kpi-value">${fmt(k.cartons)}</div>
+      <div class="kpi-sub">(PLVD1 = qté ÷ PLVD3, ou qté si PLVD3=0)</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Articles avec relevé prix</div>
+      <div class="kpi-value">${fmt(k.nbArticlesAvecRelevePrix)}</div>
+      <div class="kpi-sub">${fmt(k.nbRelevés)} relevé(s) résolu(s)</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Articles "à risque"</div>
+      <div class="kpi-value ${k.nbArticlesARisque>0?'':'muted'}">${fmt(k.nbArticlesARisque)}</div>
+      <div class="kpi-sub">≥ 5 % plus cher que la concurrence</div>
+    </div>
   `;
 }
 
-function sortRows(rows, key, dir) {
-  const sign = dir === 'asc' ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    const va = a[key], vb = b[key];
-    if (va == null && vb == null) return 0;
-    if (va == null) return  1;
-    if (vb == null) return -1;
-    if (typeof va === 'number' || (!isNaN(+va) && !isNaN(+vb) && va !== '' && vb !== '')) {
-      return (+va - +vb) * sign;
-    }
-    return String(va).localeCompare(String(vb), 'fr') * sign;
-  });
+function pctClass(p){
+  if(p===null||p===undefined) return '';
+  if(p>=50) return 'good';
+  if(p>=20) return 'avg';
+  return 'bad';
 }
 
-function applyTextFilter(rows) {
-  const q = qs('f-q').value.trim().toLowerCase();
-  if (!q) return rows;
-  return rows.filter(r =>
-    (r.reference_article || '').toLowerCase().includes(q) ||
-    (r.designation_releve || '').toLowerCase().includes(q) ||
-    (r.artcode || '').toLowerCase().includes(q) ||
-    (r.artdesignation || '').toLowerCase().includes(q) ||
-    (r.marque || '').toLowerCase().includes(q) ||
-    (r.prod_libelle || '').toLowerCase().includes(q)
-  );
-}
+function renderTree(data){
+  const tree = data.treeBySecteur || [];
+  const sec = qs('tree-section');
+  const dimL = dimLbl(data.dim);
+  if (!tree.length) {
+    sec.innerHTML = `<div class="section-header"><span class="section-title">📂 Hiérarchie secteur → ${dimL} → article</span></div>
+      <div style="padding:20px;text-align:center;color:var(--muted)">Aucune donnée sur la période.</div>`;
+    return;
+  }
 
-function renderEcarts() {
-  const tbody = qs('tbl-ecarts').querySelector('tbody');
-  const rowsAll = applyTextFilter(state.ecarts.rows);
-  const rows = sortRows(rowsAll, state.ecarts.sortKey, state.ecarts.sortDir);
-  qs('ecarts-sub').textContent = `${rows.length} ligne${rows.length > 1 ? 's' : ''}`;
-  updateSortIndicators('tbl-ecarts', state.ecarts);
-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="15" class="empty">Aucun relevé sur cette période/ces filtres.</td></tr>'; return; }
-  tbody.innerHTML = rows.map(r => {
-    const ec = r.ecart_pct;
-    const ecCls = ecartClass(ec);
-    const ecTxt = ec == null ? '—' : (ec >= 0 ? '+' : '') + fmt(ec, 1) + ' %';
-    const monArtTxt = r.artcode
-      ? `<span class="clickable" onclick="openDetail(${r.resolved_ARTID}, null, ${jsArg(r.artcode)})">${escH(r.artcode)}</span><br><small style="color:var(--muted)">${escH(r.artdesignation || '')}</small>`
-      : '<span style="color:var(--muted)">—</span>';
-    const refTxt = `<span class="clickable" onclick="openDetail(null, ${jsArg(r.reference_article)}, ${jsArg(r.reference_article)})">${escH(r.reference_article)}</span>`;
-    return `<tr>
-      <td class="txt">${badgeMatch(r.match_type)}</td>
-      <td class="txt">${refTxt}</td>
-      <td class="txt">${escH(r.designation_releve || r.prod_libelle || '')}</td>
-      <td class="txt">${monArtTxt}</td>
-      <td class="txt">${escH(r.marque || '')}</td>
-      <td>${fmt(r.nb_releves)}</td>
-      <td>${fmt(r.nb_clients)}</td>
-      <td>${fmtEur(dispReleve(r.prix_min))}</td>
-      <td>${fmtEur(dispReleve(r.prix_moyen))}</td>
-      <td>${fmtEur(dispReleve(r.prix_max))}</td>
-      <td>${fmtEur(dispReleve(r.prix_promo_moyen))}</td>
-      <td>${fmtEur(dispMonPv(r.pv_moyen_ht))}</td>
-      <td class="${ecCls}">${ecTxt}</td>
-      <td>${fmtEur(r.ca_net_ht, 0)}</td>
-      <td>${fmtDate(r.date_dernier_releve)}</td>
-    </tr>`;
-  }).join('');
-}
+  let html = `<div class="section-header">
+    <span class="section-title">📂 Hiérarchie secteur → ${dimL} → article</span>
+    <span class="section-sub">${tree.length} secteur(s) · TVA ${data.tva} %</span>
+  </div>
+  <div style="overflow-x:auto"><table class="tree-table"><thead><tr>
+    <th>Niveau</th><th>Clients</th><th>Acheteurs</th><th>Cartons</th>
+    <th>Mon PV HT</th><th>Concurrent moy HT</th><th>Min / Max</th>
+    <th>Écart</th><th>Relevés</th><th>Dernier relevé</th>
+  </tr></thead><tbody>`;
 
-function renderRisques() {
-  const tbody = qs('tbl-risques').querySelector('tbody');
-  const rows = sortRows(state.risques.rows, state.risques.sortKey, state.risques.sortDir);
-  const seuil = qs('f-seuil').value || 5;
-  qs('risques-sub').textContent = `${rows.length} article${rows.length > 1 ? 's' : ''} ≥ ${seuil} % plus cher`;
-  updateSortIndicators('tbl-risques', state.risques);
-  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="10" class="empty">Aucun article à risque sur ce seuil.</td></tr>'; return; }
-  tbody.innerHTML = rows.map(r => `<tr>
-    <td class="txt"><span class="clickable" onclick="openDetail(${r.ARTID}, null, ${jsArg(r.ARTCODE)})">${escH(r.ARTCODE)}</span></td>
-    <td class="txt">${escH(r.designation || '')}</td>
-    <td class="txt">${escH(r.marque || '')}</td>
-    <td>${fmt(r.nb_releves)}</td>
-    <td>${fmt(r.nb_clients)}</td>
-    <td>${fmtEur(dispReleve(r.prix_concurrent_moyen))}</td>
-    <td>${fmtEur(dispMonPv(r.pv_moyen_ht))}</td>
-    <td class="ec-bad">+${fmt(r.ecart_pct, 1)} %</td>
-    <td>${fmtEur(r.ca_net_ht, 0)}</td>
-    <td>${fmtDate(r.date_dernier_releve)}</td>
-  </tr>`).join('');
-}
-
-function updateSortIndicators(tblId, st) {
-  document.querySelectorAll(`#${tblId} thead th`).forEach(th => {
-    th.classList.remove('sorted-asc', 'sorted-desc');
-    if (th.dataset.k === st.sortKey) th.classList.add(st.sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
-  });
-}
-
-function bindSort(tblId, stKey, rerender) {
-  document.querySelectorAll(`#${tblId} thead th.sortable`).forEach(th => {
-    th.addEventListener('click', () => {
-      const k = th.dataset.k;
-      const st = state[stKey];
-      if (st.sortKey === k) st.sortDir = st.sortDir === 'asc' ? 'desc' : 'asc';
-      else { st.sortKey = k; st.sortDir = 'desc'; }
-      rerender();
+  // Tree collapsed par défaut au niveau secteur : seuls les lvl-1 (secteurs) visibles.
+  tree.forEach((s, si) => {
+    const sid = `sec-${si}`;
+    const pctAch = s.totalClients > 0 ? (s.nbBuyers / s.totalClients * 100) : null;
+    html += `<tr class="lvl-1" data-row="${sid}"><td class="lbl"><span class="toggler" data-toggle="${sid}">▸</span> ${escH(s.label)}</td>
+      <td>${fmt(s.totalClients)}</td>
+      <td>${fmt(s.nbBuyers)}${pctAch!==null?` <span class="val-pct ${pctClass(pctAch)}">${fmt(pctAch,1)} %</span>`:''}</td>
+      <td>${fmt(s.cartons)}</td>
+      <td colspan="4" class="muted" style="text-align:left;padding-left:20px">${s.children.length} ${dimL.toLowerCase()}(s)</td>
+      <td>${fmt(s.nb_releves)}</td><td></td></tr>`;
+    s.children.forEach((m, mi) => {
+      const mid = `dim-${si}-${mi}`;
+      html += `<tr class="lvl-2" data-row="${mid}" data-parent="${sid}" style="display:none"><td class="lbl"><span class="toggler" data-toggle="${mid}">▸</span> ${escH(m.label)}</td>
+        <td></td>
+        <td>${fmt(m.nbBuyers)}</td>
+        <td>${fmt(m.cartons)}</td>
+        <td colspan="4" class="muted" style="text-align:left;padding-left:20px">${m.children.length} article(s)</td>
+        <td>${fmt(m.nb_releves)}</td><td></td></tr>`;
+      m.children.forEach((a) => {
+        const ecartCls = a.ecart_pct === null || a.ecart_pct === undefined ? '' :
+          (a.ecart_pct >= 5 ? 'val-pct bad' : (a.ecart_pct <= -2 ? 'val-pct good' : 'val-pct avg'));
+        const minMax = (a.prix_concurrent_min_ht !== null && a.prix_concurrent_max_ht !== null && a.prix_concurrent_min_ht !== undefined)
+          ? `${fmtEur(a.prix_concurrent_min_ht,2)} / ${fmtEur(a.prix_concurrent_max_ht,2)}` : '—';
+        html += `<tr class="lvl-3" data-parent="${mid}" style="display:none"><td class="lbl">${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></td>
+          <td></td>
+          <td>${fmt(a.nbBuyers)}</td>
+          <td>${fmt(a.cartons)}</td>
+          <td>${fmtEur(a.pv_moyen_ht,2)}</td>
+          <td>${fmtEur(a.prix_concurrent_moy_ht,2)}</td>
+          <td>${minMax}</td>
+          <td>${a.ecart_pct === null || a.ecart_pct === undefined ? '—' : `<span class="${ecartCls}">${fmtPct(a.ecart_pct)}</span>`}</td>
+          <td>${fmt(a.nb_releves)}${a.nb_clients_releves>0?` <span class="muted">(${a.nb_clients_releves} cli)</span>`:''}</td>
+          <td class="muted">${a.dernier_releve || '—'}</td></tr>`;
+      });
     });
   });
+
+  html += '</tbody></table></div>';
+  sec.className = 'section';
+  sec.innerHTML = html;
+
+  // Toggle : ouvre/ferme uniquement les enfants directs. Les petits-enfants restent
+  // pliés tant qu'on n'a pas cliqué sur leur parent (cohérent avec l'UX "drill").
+  sec.querySelectorAll('[data-toggle]').forEach(t => {
+    t.onclick = (e) => {
+      e.stopPropagation();
+      const id = t.dataset.toggle;
+      const opening = t.textContent === '▸';
+      t.textContent = opening ? '▾' : '▸';
+      sec.querySelectorAll(`[data-parent="${id}"]`).forEach(child => {
+        child.style.display = opening ? '' : 'none';
+        // Si on referme un parent, on referme aussi tous ses descendants visibles
+        if (!opening) {
+          const childId = child.dataset.row;
+          if (childId) sec.querySelectorAll(`[data-parent="${childId}"]`).forEach(gc => gc.style.display = 'none');
+          const tt = child.querySelector('[data-toggle]');
+          if (tt && tt.textContent === '▾') tt.textContent = '▸';
+        }
+      });
+    };
+  });
 }
 
-async function loadEcarts() {
-  const data = await fetch(`${API}/ecarts${buildQS({ limit: 2000 })}`).then(r => r.json());
-  if (data.error) throw new Error(data.error);
-  state.ecarts.rows = data.rows || [];
-  renderEcarts();
+// Rend la liste des produits concurrents relevés. showClassif=true → étiquette
+// chaque produit de sa classification (gaps clients, où elle varie et peut être "Indéfini").
+function concListHtml(concurrents, showClassif){
+  if (!concurrents || !concurrents.length) return '';
+  const items = concurrents.map(p => {
+    const classif = showClassif ? ` <span class="conc-classif">(${escH(p.classif||'Indéfini')})</span>` : '';
+    const mq = p.marque ? ` <span class="muted">· ${escH(p.marque)}</span>` : '';
+    const prix = p.prix_releve_ht!=null ? `<span class="conc-price">${fmtEur(p.prix_releve_ht,2)}</span>` : '';
+    const nb = p.nb_releves>1 ? ` <span class="muted">×${p.nb_releves}</span>` : '';
+    return `<li>${escH(p.libelle||p.ref||'?')}${classif}${mq} ${prix}${nb}</li>`;
+  }).join('');
+  return `<div class="conc-block"><div class="conc-title">🆚 Produits concurrents relevés (${concurrents.length})</div><ul class="conc-list">${items}</ul></div>`;
 }
 
-async function loadRisques() {
-  const seuil = qs('f-seuil').value || 5;
-  const data = await fetch(`${API}/risques${buildQS({ seuil_pct: seuil, limit: 200 })}`).then(r => r.json());
-  if (data.error) throw new Error(data.error);
-  state.risques.rows = data.rows || [];
-  renderRisques();
+// Gaps articles : rupture SECTEUR (pliable) → classification/dim (pliable) → article
+// (pliable → clients absents + produits concurrents)
+function renderGapsByArticle(data){
+  const sec = qs('gaps-article-section');
+  const list = data.gapsByArticle || [];
+  const dimL = dimLbl(data.dim);
+  if (!list.length) { sec.innerHTML = ''; return; }
+
+  // Un secteur peut porter plusieurs dim_value : on regroupe les entrées par secteur.
+  const bySecteur = new Map();
+  list.forEach(entry => {
+    if (!bySecteur.has(entry.secteur)) bySecteur.set(entry.secteur, []);
+    bySecteur.get(entry.secteur).push(entry);
+  });
+
+  let html = `<div class="section">
+    <div class="section-header">
+      <span class="section-title">🚫 Gaps articles — clients du secteur qui n'achètent pas l'article</span>
+      <span class="section-sub">${bySecteur.size} secteur(s)</span>
+    </div>
+    <div class="gaps-card">`;
+  let si = 0;
+  bySecteur.forEach((entries, secteur) => {
+    const sid = `gap-art-sec-${si}`;
+    const nbArticles = entries.reduce((s, e) => s + e.articles.length, 0);
+    html += `<div class="gaps-row">
+      <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
+        <span class="name">${escH(secteur)}</span>
+        <span class="count">${entries.length} ${dimL.toLowerCase()}(s) · ${nbArticles} article(s) avec gap</span>
+      </div>
+      <div class="gaps-body" id="${sid}" style="padding:0 0 0 16px">`;
+    entries.forEach((entry, di) => {
+      const did = `gap-art-dim-${si}-${di}`;
+      html += `<div class="gaps-row">
+        <div class="gaps-head" onclick="document.getElementById('${did}').classList.toggle('open')">
+          <span class="name">${escH(entry.dim_value || '(non défini)')}</span>
+          <span class="count">${entry.articles.length} article(s)</span>
+        </div>
+        <div class="gaps-body" id="${did}" style="padding:0 0 0 16px">`;
+      entry.articles.forEach((art, aii) => {
+        const id = `gap-art-${si}-${di}-${aii}`;
+        const tot = art.nbBuyers + art.nbAbsents;
+        const pctAbs = tot > 0 ? art.nbAbsents / tot * 100 : 0;
+        html += `<div class="gaps-row">
+          <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
+            <span class="name">${escH(art.code)} — ${escH(art.designation||'')}</span>
+            <span class="count">${art.nbAbsents} absent(s) / ${tot} (${fmt(pctAbs,1)} %)</span>
+          </div>
+          <div class="gaps-body" id="${id}">
+            <ul class="abs-list">${
+              art.clients.map(c => `<li>${escH(c.nom)} <span class="cli-cmd">${escH(c.code)} · ${escH(c.commercial||'sans commercial')}</span></li>`).join('')
+            }</ul>
+            ${concListHtml(art.concurrents, false)}
+          </div>
+        </div>`;
+      });
+      html += `</div></div>`;
+    });
+    html += `</div></div>`;
+    si++;
+  });
+  html += `</div></div>`;
+  sec.innerHTML = html;
 }
 
-async function loadAll() {
+// Gaps clients : rupture SECTEUR (pliable) → marque/dim (pliable) → client (pliable → articles manquants)
+function renderGapsByClient(data){
+  const sec = qs('gaps-client-section');
+  const list = data.gapsByClient || [];
+  const dimL = dimLbl(data.dim);
+  if (!list.length) { sec.innerHTML = ''; return; }
+
+  // Chaque entrée = un couple (secteur, dim_value) ; on regroupe les dim par secteur.
+  const bySecteur = new Map();
+  list.forEach(entry => {
+    if (!bySecteur.has(entry.secteur)) bySecteur.set(entry.secteur, []);
+    bySecteur.get(entry.secteur).push(entry);
+  });
+
+  let html = `<div class="section">
+    <div class="section-header">
+      <span class="section-title">👤 Gaps clients — articles manquants par client</span>
+      <span class="section-sub">${bySecteur.size} secteur(s)</span>
+    </div>
+    <div class="gaps-card">`;
+  let si = 0;
+  bySecteur.forEach((entries, secteur) => {
+    const sid = `gap-cli-sec-${si}`;
+    const nbClients = entries.reduce((s, e) => s + e.clients.length, 0);
+    html += `<div class="gaps-row">
+      <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
+        <span class="name">${escH(secteur)}</span>
+        <span class="count">${entries.length} ${dimL.toLowerCase()}(s) · ${nbClients} client(s)</span>
+      </div>
+      <div class="gaps-body" id="${sid}" style="padding:0 0 0 16px">`;
+    entries.forEach((entry, di) => {
+      const did = `gap-cli-dim-${si}-${di}`;
+      html += `<div class="gaps-row">
+        <div class="gaps-head" onclick="document.getElementById('${did}').classList.toggle('open')">
+          <span class="name">${escH(entry.dim_value || '(non défini)')}</span>
+          <span class="count">${entry.clients.length} client(s) · ${entry.nbArticlesDim} article(s) au catalogue</span>
+        </div>
+        <div class="gaps-body" id="${did}" style="padding:0 0 0 16px">`;
+      entry.clients.forEach((c, ci) => {
+        const id = `gap-cli-${si}-${di}-${ci}`;
+        html += `<div class="gaps-row">
+          <div class="gaps-head" onclick="document.getElementById('${id}').classList.toggle('open')">
+            <span class="name">${escH(c.nom)} <span class="cli-cmd">${escH(c.code||'')} · ${escH(c.commercial||'sans commercial')}</span></span>
+            <span class="count">${c.nbMissing} / ${c.nbArticlesDim} manquants</span>
+          </div>
+          <div class="gaps-body" id="${id}">
+            <ul class="abs-list">${
+              c.missingArticles.map(a => `<li>${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></li>`).join('')
+            }</ul>
+            ${concListHtml(c.concurrents, true)}
+          </div>
+        </div>`;
+      });
+      html += `</div></div>`;
+    });
+    html += `</div></div>`;
+    si++;
+  });
+  html += `</div></div>`;
+  sec.innerHTML = html;
+}
+
+// Pricing nouvelle hiérarchie : SECTEUR → CLIENT → ARTICLE (relevés)
+function renderPricing(data){
+  const sec = qs('pricing-section');
+  const list = data.pricingBySecteur || [];
+  if (!list.length) { sec.innerHTML = ''; return; }
+  let html = `<div class="section">
+    <div class="section-header">
+      <span class="section-title">💶 Comparatif prix concurrents — par secteur d'activité → client → article</span>
+      <span class="section-sub">${list.length} secteur(s) avec relevé(s)</span>
+    </div>
+    <div class="gaps-card">`;
+  list.forEach((entry, si) => {
+    const sid = `pri-sec-${si}`;
+    html += `<div class="gaps-row">
+      <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
+        <span class="name">${escH(entry.secteur)}</span>
+        <span class="count">${entry.nb_clients} client(s) · ${entry.nb_releves} relevé(s)</span>
+      </div>
+      <div class="gaps-body" id="${sid}">`;
+    entry.clients.forEach((c, ci) => {
+      const cid = `pri-cli-${si}-${ci}`;
+      html += `<div style="margin:6px 0;border-left:3px solid var(--blue);padding-left:8px">
+        <div onclick="document.getElementById('${cid}').classList.toggle('open')" style="cursor:pointer;display:flex;gap:8px;align-items:center;padding:4px 6px;background:rgba(33,150,243,.06)">
+          <span style="font-weight:600">${escH(c.nom)}</span>
+          <span class="muted" style="font-size:.7rem">${escH(c.code||'')} · ${escH(c.commercial||'')}</span>
+          <span class="muted" style="margin-left:auto;font-size:.72rem">${c.nb_articles} article(s) · ${c.nb_releves} relevé(s)</span>
+        </div>
+        <div class="gaps-body" id="${cid}" style="padding:4px 8px 8px 0">
+          <table class="pricing-table"><thead><tr>
+            <th>Code</th><th>Article</th><th>Date</th>
+            <th>Prix relevé HT</th><th>Promo HT</th><th>Mon PV HT</th><th>Écart %</th>
+            <th>Marque relevée</th><th>Match</th>
+          </tr></thead><tbody>${
+            c.articles.map(a => {
+              const ecartCls = a.ecart_pct == null ? '' :
+                (a.ecart_pct >= 5 ? 'val-pct bad' : (a.ecart_pct <= -2 ? 'val-pct good' : 'val-pct avg'));
+              return `<tr>
+                <td>${escH(a.code||'')}</td>
+                <td class="muted">${escH(a.designation||'')}</td>
+                <td class="muted">${escH(a.date_releve||'')}</td>
+                <td>${fmtEur(a.prix_releve_ht,2)}</td>
+                <td class="muted">${fmtEur(a.prix_promo_ht,2)}</td>
+                <td>${a.mon_pv_ht==null?'—':fmtEur(a.mon_pv_ht,2)}</td>
+                <td>${a.ecart_pct==null?'—':`<span class="${ecartCls}">${fmtPct(a.ecart_pct)}</span>`}</td>
+                <td class="muted">${escH(a.marque_releve||'')}</td>
+                <td class="muted">${escH(a.match_type||'')}</td>
+              </tr>`;
+            }).join('')
+          }</tbody></table>
+        </div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+  html += `</div></div>`;
+  sec.innerHTML = html;
+}
+
+// ── Chart : prix relevé moyen par secteur × dim (Chart.js bar chart) ─────
+let _priceChart = null;
+function renderChart(data){
+  const host = qs('chart-section');
+  const ch = data.chart || { secteurs: [], series: [] };
+  if (!ch.secteurs.length || !ch.series.length) { host.innerHTML = ''; return; }
+  const dimL = dimLbl(data.dim);
+  host.innerHTML = `<div class="section">
+    <div class="section-header">
+      <span class="section-title">📈 Prix relevé moyen HT par secteur × ${dimL.toLowerCase()}</span>
+      <span class="section-sub">${ch.secteurs.length} secteur(s) × ${ch.series.length} ${dimL.toLowerCase()}(s)</span>
+    </div>
+    <div style="padding:14px;height:340px;position:relative"><canvas id="price-chart"></canvas></div>
+  </div>`;
+  const palette = ['#2196F3','#4CAF50','#FF9800','#9C27B0','#F44336','#00BCD4','#FF5722','#8BC34A','#3F51B5','#FFC107','#E91E63','#009688'];
+  const datasets = ch.series.map((s, i) => ({
+    label: s.dim_value,
+    data: s.prixMoyHt,
+    backgroundColor: palette[i % palette.length],
+    borderColor: palette[i % palette.length],
+    borderWidth: 1,
+  }));
+  if (_priceChart) { _priceChart.destroy(); _priceChart = null; }
+  const ctx = document.getElementById('price-chart');
+  if (!ctx) return;
+  _priceChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: ch.secteurs, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#cbd5e1', font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y == null ? '—' : new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(c.parsed.y) + ' €'}` } },
+      },
+      scales: {
+        x: { ticks: { color: '#8892a4' }, grid: { color: '#2a2d3e' } },
+        y: { ticks: { color: '#8892a4', callback: v => new Intl.NumberFormat('fr-FR').format(v) + ' €' }, grid: { color: '#2a2d3e' } },
+      },
+    },
+  });
+}
+
+// Repère visuel "filtres modifiés, à appliquer" : surligne le bouton Actualiser
+// tant que les choix courants n'ont pas été rendus. clearDirty() au terme de load().
+function markDirty(){
+  const b = qs('refresh-btn'); if (!b) return;
+  b.style.background = '#ff9800'; b.style.color = '#fff'; b.style.fontWeight = '700';
+  b.title = 'Filtres modifiés — cliquez pour actualiser';
+}
+function clearDirty(){
+  const b = qs('refresh-btn'); if (!b) return;
+  b.style.background = ''; b.style.color = ''; b.style.fontWeight = '';
+  b.title = '';
+}
+
+let _firstLoadDone = false;
+async function load(){
   const btn = qs('refresh-btn'), dot = qs('status-dot'), banner = qs('error-banner');
   btn.disabled = true; btn.textContent = '…';
+  if (!_firstLoadDone) skeleton(); else dot.className = '';
+
+  const params = new URLSearchParams();
+  const d0 = qs('sel-date-debut').value, d1 = qs('sel-date-fin').value;
+  if (d0) params.set('date_debut', d0);
+  if (d1) params.set('date_fin', d1);
+  if (SELECTED_SECTEURS.size) params.set('secteurs', Array.from(SELECTED_SECTEURS).join(','));
+  if (SELECTED_MARQUES.size)  params.set('marques',  Array.from(SELECTED_MARQUES).join(','));
+  if (SELECTED_FAMILLES.size) params.set('familles', Array.from(SELECTED_FAMILLES).join(','));
+  if (SELECTED_REPS.size)     params.set('repid',    Array.from(SELECTED_REPS).join(','));
+  const cli = qs('sel-cliactif').value; if (cli) params.set('cliactif', cli);
+  const tva = qs('sel-tva').value;      if (tva) params.set('tva', tva);
+  const dim = qs('sel-dim').value;      if (dim) params.set('dim', dim);
+  applyDbParam(params);
+
+  saveState();
   try {
-    await Promise.all([loadKpis(), loadRisques(), loadEcarts()]);
+    const data = await fetch(`${API}/penetration?${params}`).then(r => r.json());
+    if (data.error) throw new Error(data.error);
+    LAST_DATA = data;
+    updateDbBadge(data.db);
+    renderKpis(data);
+    renderChart(data);
+    renderTree(data);
+    renderGapsByArticle(data);
+    renderGapsByClient(data);
+    renderPricing(data);
+    _firstLoadDone = true;
     dot.className = 'ok';
     banner.style.display = 'none';
     qs('last-update').textContent = new Date().toLocaleTimeString('fr-FR');
@@ -500,120 +834,66 @@ async function loadAll() {
     dot.className = 'err';
     banner.style.display = 'block';
     banner.textContent = 'Erreur : ' + err.message;
+    ['kpis','chart-section','tree-section','gaps-article-section','gaps-client-section','pricing-section']
+      .forEach(id => qs(id).innerHTML = '');
+    if (_priceChart) { _priceChart.destroy(); _priceChart = null; }
   } finally {
-    btn.disabled = false; btn.textContent = '↻ Actualiser';
+    btn.disabled = false; btn.textContent = '↻ Actualiser'; clearDirty();
   }
 }
 
-// ── Drill-down ────────────────────────────────────────────────────────────────
-async function openDetail(artid, reference, label) {
-  qs('modal-title').textContent = 'Détail des relevés — ' + (label || reference || ('ARTID ' + artid));
-  qs('modal-body').innerHTML = '<div class="empty">Chargement…</div>';
-  qs('modal-bg').classList.add('open');
+function buildExportParams(){
+  const params = new URLSearchParams();
+  const d0 = qs('sel-date-debut').value, d1 = qs('sel-date-fin').value;
+  if (d0) params.set('date_debut', d0);
+  if (d1) params.set('date_fin', d1);
+  if (SELECTED_SECTEURS.size) params.set('secteurs', Array.from(SELECTED_SECTEURS).join(','));
+  if (SELECTED_MARQUES.size)  params.set('marques',  Array.from(SELECTED_MARQUES).join(','));
+  if (SELECTED_FAMILLES.size) params.set('familles', Array.from(SELECTED_FAMILLES).join(','));
+  if (SELECTED_REPS.size)     params.set('repid',    Array.from(SELECTED_REPS).join(','));
+  const cli = qs('sel-cliactif').value; if (cli) params.set('cliactif', cli);
+  const tva = qs('sel-tva').value;      if (tva) params.set('tva', tva);
+  const dim = qs('sel-dim').value;      if (dim) params.set('dim', dim);
+  applyDbParam(params);
+  return params;
+}
+
+async function exportExcel(){
+  const btn = qs('excel-btn'); const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = '📊 …';
   try {
-    const extra = artid ? { artid } : { reference };
-    const data = await fetch(`${API}/detail${buildQS(extra)}`).then(r => r.json());
-    if (data.error) throw new Error(data.error);
-    if (!data.rows.length) { qs('modal-body').innerHTML = '<div class="empty">Aucun relevé.</div>'; return; }
-    qs('modal-body').innerHTML = `
-      <table class="data">
-        <thead><tr>
-          <th class="txt">Date</th><th class="txt">Client</th><th class="txt">Rep</th>
-          <th class="txt">Référence</th><th class="txt">Désignation</th>
-          <th class="txt">Marque</th><th>Prix ${isHT() ? 'HT' : 'TTC'}</th><th>Promo ${isHT() ? 'HT' : 'TTC'}</th><th class="txt">Type</th>
-        </tr></thead>
-        <tbody>${data.rows.map(r => `<tr>
-          <td class="txt">${fmtDate(r.date_releve)}</td>
-          <td class="txt">${escH(r.client || '')}</td>
-          <td class="txt">${escH(r.REPCODE || '')}</td>
-          <td class="txt">${escH(r.REFERENCE_ARTICLE || '')}</td>
-          <td class="txt">${escH(r.DESIGNATION_ARTICLE || '')}</td>
-          <td class="txt">${escH(r.marque || '')}</td>
-          <td>${fmtEur(dispReleve(r.PRIX_RELEVE))}</td>
-          <td>${fmtEur(dispReleve(r.PRIX_PROMO))}</td>
-          <td class="txt">${badgeMatch(r.match_type)}</td>
-        </tr>`).join('')}</tbody>
-      </table>`;
-  } catch (err) {
-    qs('modal-body').innerHTML = `<div class="empty" style="color:var(--red)">Erreur : ${escH(err.message)}</div>`;
-  }
+    const res = await fetch(`${API}/penetration/excel?${buildExportParams()}`);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `penetration-prix-${new Date().toISOString().slice(0,10)}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('Erreur export Excel : ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = prev; }
 }
 
-function closeDetail() { qs('modal-bg').classList.remove('open'); }
-
-// ── Export CSV ────────────────────────────────────────────────────────────────
-function exportCsv() {
-  const rows = applyTextFilter(state.ecarts.rows);
-  if (!rows.length) return alert('Aucune ligne à exporter.');
-  const u = isHT() ? 'HT' : 'TTC';
-  const headers = ['Type', 'Réf relevé', 'Désignation', 'Mon article', 'Mon libellé', 'Marque',
-    'Nb relevés', 'Nb clients',
-    `Prix min ${u}`, `Prix moyen ${u}`, `Prix max ${u}`, `Prix promo moy ${u}`,
-    `Mon PV ${u}`, 'Écart %', 'Mon CA HT', 'Qté vendue', 'Dernier relevé'];
-  const round2 = v => v == null || isNaN(+v) ? '' : (+v).toFixed(2).replace('.', ',');
-  const esc = v => {
-    if (v == null) return '';
-    const s = String(v);
-    return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  };
-  const lines = [headers.join(';')];
-  rows.forEach(r => lines.push([
-    r.match_type, r.reference_article, r.designation_releve, r.artcode, r.artdesignation, r.marque,
-    r.nb_releves, r.nb_clients,
-    round2(dispReleve(r.prix_min)), round2(dispReleve(r.prix_moyen)), round2(dispReleve(r.prix_max)), round2(dispReleve(r.prix_promo_moyen)),
-    round2(dispMonPv(r.pv_moyen_ht)),
-    r.ecart_pct == null ? '' : (+r.ecart_pct).toFixed(2).replace('.', ','),
-    round2(r.ca_net_ht), r.qte_vendue, r.date_dernier_releve,
-  ].map(esc).join(';')));
-  const csv = '﻿' + lines.join('\r\n');   // BOM UTF-8 pour Excel FR
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `rapport-prix-${u.toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+async function exportPDF(){
+  const btn = qs('pdf-btn'); const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = '🖨️ …';
+  try {
+    const params = buildExportParams();
+    const token = AUTH.getToken && AUTH.getToken();
+    if (token) params.set('token', token);
+    window.open(`${API}/penetration/pdf?${params}`, '_blank');
+  } catch(e) { alert('Erreur PDF : ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = prev; }
 }
 
-// Met à jour les badges TTC/HT en en-tête sans re-fetch
-function refreshModeBadges() {
-  const u = isHT() ? 'HT' : 'TTC';
-  document.querySelectorAll('.th-mode').forEach(s => s.textContent = u);
-}
-
-// Bascule HT/TTC ou changement de TVA : pas besoin de refetch, juste re-render +
-// recalc serveur de l'écart (le ratio est juste-côté serveur via tva_coef).
-async function onTvaModeChange() {
-  localStorage.setItem('tb_prix_mode', qs('f-mode').value);
-  localStorage.setItem('tb_prix_tva',  qs('f-tva').value);
-  refreshModeBadges();
-  // On reload car ecart_pct dépend du serveur (param tva)
-  await loadAll();
-}
-
-// ── Init ──────────────────────────────────────────────────────────────────────
-const savedMode = localStorage.getItem('tb_prix_mode');
-const savedTva  = localStorage.getItem('tb_prix_tva');
-if (savedMode) qs('f-mode').value = savedMode;
-if (savedTva)  qs('f-tva').value  = savedTva;
-
-['f-d0','f-d1','f-tirid','f-marque','f-rep','f-match'].forEach(id => qs(id).addEventListener('change', loadAll));
-qs('f-mode').addEventListener('change', onTvaModeChange);
-qs('f-tva').addEventListener('change',  onTvaModeChange);
-qs('f-q').addEventListener('input', () => renderEcarts());
-qs('f-seuil').addEventListener('change', loadRisques);
-qs('refresh-btn').addEventListener('click', loadAll);
-qs('csv-btn').addEventListener('click', exportCsv);
-qs('modal-bg').addEventListener('click', e => { if (e.target === qs('modal-bg')) closeDetail(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
-
-bindSort('tbl-ecarts',  'ecarts',  renderEcarts);
-bindSort('tbl-risques', 'risques', renderRisques);
-
-refreshModeBadges();
-loadFilters().then(loadAll).catch(err => {
+(async () => {
+  await initFilters();
+  load();
+})().catch(e => {
+  qs('error-banner').textContent = 'Erreur init : ' + e.message;
   qs('error-banner').style.display = 'block';
-  qs('error-banner').textContent = 'Erreur : ' + err.message;
 });
 </script>
+
 </body>
 </html>
