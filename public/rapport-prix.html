@@ -148,7 +148,7 @@
     <option value="O" selected>Clients actifs</option>
     <option value="N">Clients inactifs</option>
     <option value="all">Tous les clients</option>
-    <option value="fideleN2">Clients fidèles (CA N et N-2)</option>
+    <option value="period">Clients avec CA sur N/N-1</option>
   </select>
   <div class="fld-grp" title="TVA pour ramener les prix relevés (saisis TTC) en HT">
     TVA <input type="number" id="sel-tva" min="0" max="100" step="0.5" value="8.5"> %
@@ -420,13 +420,13 @@ function renderKpis(data){
   const k = data.kpis || {};
   const pctAcheteurs = k.totalClientsPortefeuille > 0
     ? (k.nbAcheteurs / k.totalClientsPortefeuille * 100) : 0;
-  const periodeN2 = data.periodeN2
-    ? ` · vs ${data.periodeN2.date_debut} → ${data.periodeN2.date_fin}` : '';
+  const periodeN1 = data.periodeN1
+    ? ` · vs N-1 ${data.periodeN1.date_debut} → ${data.periodeN1.date_fin}` : '';
   qs('kpis').innerHTML = `
     <div class="kpi-card">
       <div class="kpi-label">Clients portefeuille</div>
       <div class="kpi-value">${fmt(k.totalClientsPortefeuille)}</div>
-      <div class="kpi-sub">${data.periode?.date_debut} → ${data.periode?.date_fin}${periodeN2}</div>
+      <div class="kpi-sub">${data.periode?.date_debut} → ${data.periode?.date_fin}${periodeN1}</div>
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Acheteurs (période)</div>

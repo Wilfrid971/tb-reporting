@@ -256,13 +256,15 @@ async function fetchPenetrationData(pool, query) {
     //  O    → clients actifs (défaut)
     //  N    → clients inactifs
     //  all  → tous
-    //  fideleN2 → actifs avec CA sur N ET N-2 (même plage de dates décalée de 2 ans)
-    const cliactifRaw = String(query.cliactif || '').trim();
-    const isFideleN2  = cliactifRaw === 'fideleN2';
-    const cliactif    = isFideleN2 ? 'O'
+    //  period → clients avec CA sur N OU N-1 (même filtre que le rapport
+    //           secteur×marque : ≥1 vente statistique sur la période ou N-1,
+    //           indépendant de TIRISACTIF)
+    const cliactifRaw  = String(query.cliactif || '').trim();
+    const isPeriodMode = cliactifRaw === 'period';
+    const cliactif     = isPeriodMode ? ''
                        : (cliactifRaw === 'N' ? 'N'
                        : (cliactifRaw === 'all' ? '' : 'O'));
-    // Période N-2 : même plage de dates décalée de 2 ans en arrière
+    // Période N-1 : même plage de dates décalée d'un an en arrière
     const shiftYears = (dateStr, n) => {
       const [y, m, d] = dateStr.split('-').map(Number);
       const year = y + n;
@@ -273,8 +275,8 @@ async function fetchPenetrationData(pool, query) {
       const pad = (x) => String(x).padStart(2, '0');
       return `${year}-${pad(m)}-${pad(day)}`;
     };
-    const dN2  = shiftYears(p.date_debut, -2);
-    const fN2  = shiftYears(p.date_fin,   -2);
+    const dN1  = shiftYears(p.date_debut, -1);
+    const fN1  = shiftYears(p.date_fin,   -1);
 
     // Métadonnées DB (pour badge d'en-tête)
     const [dbNameRow, societe] = await Promise.all([
@@ -285,9 +287,10 @@ async function fetchPenetrationData(pool, query) {
     // Helpers SQL : binding params communs + génération clauses dynamiques
     const cliActifCond = cliactif ? ` AND tc.TIRISACTIF='${cliactif}'` : '';
     const cliActifBareCond = cliactif ? ` AND TIRISACTIF='${cliactif}'` : '';
-    // Filtre fideleN2 : client doit avoir au moins une vente sur N ET sur N-2.
-    // Appliqué à Q1 et Q2 pour rester cohérent (univers clients + agrégation ventes).
-    const fideleN2Cond = isFideleN2 ? `
+    // Filtre period : client doit avoir au moins une vente statistique sur N OU sur N-1
+    // (aligné sur le rapport secteur×marque). Appliqué à Q1 et Q2 pour rester cohérent
+    // (univers clients + agrégation ventes).
+    const periodCond = isPeriodMode ? `
       AND EXISTS (
         SELECT 1 FROM PIECEVENTELIGNES pl2
         JOIN PIECEVENTES pv2 ON pv2.PCVID=pl2.PCVID
@@ -295,16 +298,8 @@ async function fetchPenetrationData(pool, query) {
         JOIN ARTICLES a2 WITH (NOLOCK) ON a2.ARTID=pl2.ARTID
         WHERE pn2.PITCODE='F' AND pn2.PINSENSSTATISTIQUE<>0 AND a2.ARTISSTATISTIQUE='O'
           AND pv2.TIRID=tc.TIRID
-          AND pv2.PCVDATEEFFET>=@date_debut AND pv2.PCVDATEEFFET<DATEADD(day,1,@date_fin)
-      )
-      AND EXISTS (
-        SELECT 1 FROM PIECEVENTELIGNES pl3
-        JOIN PIECEVENTES pv3 ON pv3.PCVID=pl3.PCVID
-        JOIN PIECE_NATURE pn3 WITH (NOLOCK) ON pn3.PINID=pv3.PINID
-        JOIN ARTICLES a3 WITH (NOLOCK) ON a3.ARTID=pl3.ARTID
-        WHERE pn3.PITCODE='F' AND pn3.PINSENSSTATISTIQUE<>0 AND a3.ARTISSTATISTIQUE='O'
-          AND pv3.TIRID=tc.TIRID
-          AND pv3.PCVDATEEFFET>=@dN2 AND pv3.PCVDATEEFFET<DATEADD(day,1,@fN2)
+          AND ((pv2.PCVDATEEFFET>=@date_debut AND pv2.PCVDATEEFFET<DATEADD(day,1,@date_fin))
+            OR (pv2.PCVDATEEFFET>=@dN1 AND pv2.PCVDATEEFFET<DATEADD(day,1,@fN1)))
       )` : '';
     const secteurInList = secteurs.map((_, i) => `@sec${i}`).join(',');
     const secteurFTc    = secteurs.length ? `AND ISNULL(RTRIM(tc.TIRACTIVITE),'Non défini') IN (${secteurInList})` : '';
@@ -335,9 +330,9 @@ async function fetchPenetrationData(pool, query) {
       r.input('date_debut', sql.VarChar(10), p.date_debut);
       r.input('date_fin',   sql.VarChar(10), p.date_fin);
       r.input('tva_coef',   sql.Float,       tvaCoef);
-      if (isFideleN2) {
-        r.input('dN2', sql.VarChar(10), dN2);
-        r.input('fN2', sql.VarChar(10), fN2);
+      if (isPeriodMode) {
+        r.input('dN1', sql.VarChar(10), dN1);
+        r.input('fN1', sql.VarChar(10), fN1);
       }
       secteurs.forEach((s, i) => r.input(`sec${i}`,    sql.NVarChar(255), s));
       marques.forEach((m, i)  => r.input(`marque${i}`, sql.NVarChar(255), m));
@@ -357,7 +352,7 @@ async function fetchPenetrationData(pool, query) {
              ISNULL(RTRIM(tr.TIRSOCIETE),'') AS commercial
       FROM TIERS tc WITH (NOLOCK)
       LEFT JOIN TIERS tr WITH (NOLOCK) ON tr.TIRID=tc.REPID AND tr.TIRTYPE='R'
-      WHERE tc.TIRTYPE='C'${cliActifCond}${fideleN2Cond}
+      WHERE tc.TIRTYPE='C'${cliActifCond}${periodCond}
         ${repids.length ? `AND tc.REPID IN (${repInList})` : ''}
         ${secteurFTc}
     `);
@@ -395,7 +390,7 @@ async function fetchPenetrationData(pool, query) {
       ${dimJoin}
       JOIN TIERS tc WITH (NOLOCK)          ON tc.TIRID=pv.TIRID
       WHERE pn.PITCODE='F' AND pn.PINSENSSTATISTIQUE<>0 AND a.ARTISSTATISTIQUE='O'
-        AND tc.TIRTYPE='C'${cliActifCond}${fideleN2Cond}
+        AND tc.TIRTYPE='C'${cliActifCond}${periodCond}
         AND pv.PCVDATEEFFET >= @date_debut
         AND pv.PCVDATEEFFET <  DATEADD(day, 1, @date_fin)
         ${marqueF} ${familleF} ${secteurFTc} ${repCliF}
@@ -803,7 +798,7 @@ async function fetchPenetrationData(pool, query) {
     return {
       generatedAt: new Date().toISOString(),
       periode: p,
-      periodeN2: isFideleN2 ? { date_debut: dN2, date_fin: fN2 } : null,
+      periodeN1: isPeriodMode ? { date_debut: dN1, date_fin: fN1 } : null,
       tva,
       dim,
       db: { database: dbNameRow, societe },
@@ -980,7 +975,7 @@ async function buildPenetrationExcel(data) {
   ];
   wsSyn.getRow(1).eachCell(c => { c.fill=headerFill; c.font=headerFont; c.border=border; c.alignment={horizontal:'center'}; });
   wsSyn.addRow({ k:'Période',                  v:`${data.periode.date_debut} → ${data.periode.date_fin}` });
-  if (data.periodeN2) wsSyn.addRow({ k:'Période N-2 (filtre fidèles)', v:`${data.periodeN2.date_debut} → ${data.periodeN2.date_fin}` });
+  if (data.periodeN1) wsSyn.addRow({ k:'Période N-1 (filtre CA N/N-1)', v:`${data.periodeN1.date_debut} → ${data.periodeN1.date_fin}` });
   wsSyn.addRow({ k:'TVA',                      v:`${data.tva} %` });
   wsSyn.addRow({ k:'Dimension article',        v:dimL });
   wsSyn.addRow({ k:'Filtre clients',           v:filtres.cliactif || 'O' });
@@ -1223,7 +1218,7 @@ function buildPenetrationHTML(data) {
   <h1>💰 Pénétration prix concurrents</h1>
   <div class="meta">
     Période : ${esc(data.periode.date_debut)} → ${esc(data.periode.date_fin)}
-    ${data.periodeN2 ? `· N-2 : ${esc(data.periodeN2.date_debut)} → ${esc(data.periodeN2.date_fin)}` : ''}
+    ${data.periodeN1 ? `· N-1 : ${esc(data.periodeN1.date_debut)} → ${esc(data.periodeN1.date_fin)}` : ''}
     · TVA ${esc(data.tva)} %
     · Dim : ${esc(dimL)}
     · Filtre clients : ${esc(f.cliactif || 'O')}
