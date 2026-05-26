@@ -87,7 +87,7 @@ const RELEVE_RESOLVED_CTE = `
            ON p.Code_Produit = r.REFERENCE_ARTICLE
     LEFT JOIN EXT_ART_CONCURRENTS ac WITH (NOLOCK)
            ON ac.IDProduit = p.IDProduit
-    WHERE r.STATUT = 'envoyee'
+    WHERE r.STATUT IN ('envoyee','validee')
       AND r.PRIX_RELEVE IS NOT NULL
       AND r.DATE_RELEVE >= @date_debut
       AND r.DATE_RELEVE <  DATEADD(day, 1, @date_fin)
@@ -144,7 +144,7 @@ router.get('/filters', async (req, res) => {
         SELECT CONVERT(varchar(10), MIN(DATE_RELEVE), 120) AS min_date,
                CONVERT(varchar(10), MAX(DATE_RELEVE), 120) AS max_date
         FROM EXT_RELEVE_PRIX WITH (NOLOCK)
-        WHERE STATUT='envoyee'
+        WHERE STATUT IN ('envoyee','validee')
       `).then(r => r.recordset[0] || {}),
     ]);
     res.json({ secteurs, marques, familles, commerciaux: reps, bornes });
