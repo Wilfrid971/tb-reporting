@@ -648,6 +648,34 @@ async function fetchPenetrationData(pool, query) {
       artMeta.set(aid, { code: row.art_code, designation: row.art_designation, dim_value: dimVal });
     });
 
+    // Relevés scopés par (secteur du client relevé × article) — dérivés de Q4 (relevés
+    // bruts, déjà rattachés au secteur du client où le relevé a eu lieu). Un relevé fait
+    // chez un client du secteur A ne compte donc QUE pour le secteur A, pas globalement
+    // sur tous les secteurs où l'article est vendu.
+    const releveBySecteurArt = new Map(); // `${secteur}||${art_id}` → stats relevé
+    {
+      const acc = new Map();
+      q4.recordset.forEach(row => {
+        if (row.art_id == null) return;
+        const key = `${row.secteur}||${row.art_id}`;
+        let a = acc.get(key);
+        if (!a) { a = { n:0, clients:new Set(), sum:0, min:null, max:null, promoSum:0, promoN:0, dernier:null }; acc.set(key, a); }
+        const pr = parseFloat(row.prix_releve_ht);
+        a.n++; if (row.tir_id != null) a.clients.add(row.tir_id);
+        if (isFinite(pr)) { a.sum += pr; a.min = a.min==null?pr:Math.min(a.min,pr); a.max = a.max==null?pr:Math.max(a.max,pr); }
+        const pp = parseFloat(row.prix_promo_ht);
+        if (isFinite(pp)) { a.promoSum += pp; a.promoN++; }
+        if ((row.date_releve||'') > (a.dernier||'')) a.dernier = row.date_releve;
+      });
+      acc.forEach((a, key) => releveBySecteurArt.set(key, {
+        nb_releves: a.n, nb_clients_releves: a.clients.size,
+        prix_concurrent_min_ht: a.min, prix_concurrent_max_ht: a.max,
+        prix_concurrent_moy_ht: a.n > 0 ? a.sum / a.n : null,
+        prix_promo_moy_ht: a.promoN > 0 ? a.promoSum / a.promoN : null,
+        dernier_releve: a.dernier,
+      }));
+    }
+
     // Sérialisation du tree
     const treeBySecteur = [];
     root.forEach((dimMap, sec) => {
@@ -660,7 +688,7 @@ async function fetchPenetrationData(pool, query) {
         const dimBuyers = new Set();
         let dimCartons = 0, dimNbReleves = 0;
         artMap.forEach(node => {
-          const releve = releveByArt.get(node.art_id);
+          const releve = releveBySecteurArt.get(`${sec}||${node.art_id}`);
           const pv_moyen_ht = node.qte > 0 ? node.ca / node.qte : null;
           const prix_conc_moy = releve ? releve.prix_concurrent_moy_ht : null;
           const ecart_pct = (pv_moyen_ht && prix_conc_moy)
