@@ -558,6 +558,71 @@ async function fetchPenetrationData(pool, query) {
       }
     });
 
+    // ───── Q6 : produits concurrents relevés SANS correspondance article
+    // (resolved_ARTID NULL = relevé sur EXT_Produits sans lien EXT_ART_CONCURRENTS,
+    // ou réf inconnue). Classés secteur d'activité → client → produits, pour la
+    // section "Produits concurrents non rattachés".
+    const r6 = pool.request();
+    bindCommon(r6);
+    const q6 = await r6.query(`
+      ${RELEVE_RESOLVED_CTE}
+      SELECT
+        ISNULL(RTRIM(t.TIRACTIVITE),'Non défini')                AS secteur,
+        r.TIRID                                                  AS tir_id,
+        RTRIM(ISNULL(t.TIRSOCIETE, r.CLIENT_NOM))                AS client_nom,
+        RTRIM(t.TIRCODE)                                         AS client_code,
+        RTRIM(r.REFERENCE_ARTICLE)                               AS ref,
+        COALESCE(NULLIF(RTRIM(r.prod_libelle),''), RTRIM(r.DESIGNATION_ARTICLE)) AS libelle,
+        COALESCE(NULLIF(RTRIM(r.MARQUE),''), NULLIF(RTRIM(r.prod_marque),''))    AS marque,
+        r.match_type                                             AS match_type,
+        CAST(r.PRIX_RELEVE AS float) / @tva_coef                 AS prix_releve_ht,
+        CAST(r.PRIX_PROMO  AS float) / @tva_coef                 AS prix_promo_ht,
+        CONVERT(varchar(10), r.DATE_RELEVE, 120)                 AS date_releve
+      FROM releve_resolved r
+      LEFT JOIN TIERS t WITH (NOLOCK) ON t.TIRID = r.TIRID
+      WHERE r.resolved_ARTID IS NULL
+        ${releveCliF}
+    `);
+    // Agrégation secteur → client → produits (dédup par réf+libellé, garde le + récent).
+    const nrSecMap = new Map(); // secteur → Map<tir_id, { code, nom, prodMap }>
+    q6.recordset.forEach(row => {
+      const sec = row.secteur || 'Non défini';
+      if (!nrSecMap.has(sec)) nrSecMap.set(sec, new Map());
+      const cliMap = nrSecMap.get(sec);
+      const tid = row.tir_id;
+      if (!cliMap.has(tid)) cliMap.set(tid, { tir_id: tid, code: row.client_code, nom: row.client_nom || row.client_code || '—', prodMap: new Map() });
+      const cli = cliMap.get(tid);
+      const key = `${row.ref}||${row.libelle}`;
+      const ex = cli.prodMap.get(key);
+      if (!ex) cli.prodMap.set(key, {
+        ref: row.ref, libelle: row.libelle || row.ref, marque: row.marque || null, match_type: row.match_type,
+        prix_releve_ht: row.prix_releve_ht, prix_promo_ht: row.prix_promo_ht, date_releve: row.date_releve, nb_releves: 1,
+      });
+      else {
+        ex.nb_releves++;
+        if ((row.date_releve || '') > (ex.date_releve || '')) {
+          ex.prix_releve_ht = row.prix_releve_ht; ex.prix_promo_ht = row.prix_promo_ht; ex.date_releve = row.date_releve;
+        }
+      }
+    });
+    const concurrentsNonRattaches = [];
+    nrSecMap.forEach((cliMap, sec) => {
+      const refsSet = new Set();
+      let secReleves = 0;
+      const clients = [];
+      cliMap.forEach(cli => {
+        const produits = Array.from(cli.prodMap.values())
+          .sort((a, b) => (a.marque||'').localeCompare(b.marque||'', 'fr') || (a.libelle||'').localeCompare(b.libelle||'', 'fr'));
+        const nbRel = produits.reduce((s, p) => s + p.nb_releves, 0);
+        secReleves += nbRel;
+        produits.forEach(p => refsSet.add(p.ref));
+        clients.push({ tir_id: cli.tir_id, code: cli.code, nom: cli.nom, nb_produits: produits.length, nb_releves: nbRel, produits });
+      });
+      clients.sort((a, b) => (b.nb_releves - a.nb_releves) || (a.nom||'').localeCompare(b.nom||'', 'fr'));
+      concurrentsNonRattaches.push({ secteur: sec, nb_clients: clients.length, nb_produits: refsSet.size, nb_releves: secReleves, clients });
+    });
+    concurrentsNonRattaches.sort((a, b) => (b.nb_releves - a.nb_releves) || a.secteur.localeCompare(b.secteur, 'fr'));
+
     // ───── Agrégation JS : tree secteur → DIM (marque/sous-fam/classe…) → article ─
     // Mesure principale = CARTONS = PLVD1 (PLVQTE/PLVD3 si PLVD3<>0, sinon PLVQTE).
     // Garde aussi qté et ca pour le calcul PV.
@@ -816,6 +881,7 @@ async function fetchPenetrationData(pool, query) {
       gapsByClient,
       pricingBySecteur,
       concurrents,
+      concurrentsNonRattaches,
       chart: {
         secteurs: chartSecteurs,
         series: chartSeries,
@@ -1172,6 +1238,40 @@ async function buildPenetrationExcel(data) {
         r.getCell('pr').numFmt = eurFmt;
         r.getCell('pp').numFmt = eurFmt;
         r.getCell('nb').numFmt = numFmt;
+      });
+    });
+  }
+
+  // ── Sheet 8 : Produits concurrents non rattachés (secteur → client → produit) ──
+  if ((data.concurrentsNonRattaches || []).length) {
+    const wsNR = wb.addWorksheet('Concurrents non rattachés');
+    wsNR.columns = [
+      { header:'Secteur', key:'sec', width:25 },
+      { header:'Client', key:'cli', width:35 },
+      { header:'Code client', key:'cco', width:14 },
+      { header:'Référence', key:'ref', width:18 },
+      { header:'Produit concurrent', key:'lib', width:42 },
+      { header:'Marque', key:'mar', width:20 },
+      { header:'Type relevé', key:'typ', width:18 },
+      { header:'Prix relevé HT', key:'pr', width:14 },
+      { header:'Promo HT', key:'pp', width:13 },
+      { header:'Dernier relevé', key:'dat', width:13 },
+      { header:'Nb relevés', key:'nb', width:11 },
+    ];
+    wsNR.getRow(1).eachCell(c => { c.fill=headerFill; c.font=headerFont; c.border=border; c.alignment={horizontal:'center',wrapText:true}; });
+    wsNR.views = [{ state:'frozen', ySplit:1 }];
+    data.concurrentsNonRattaches.forEach(entry => {
+      (entry.clients || []).forEach(c => {
+        (c.produits || []).forEach(p => {
+          const r = wsNR.addRow({
+            sec:entry.secteur, cli:c.nom, cco:c.code,
+            ref:p.ref, lib:p.libelle, mar:p.marque || '', typ:p.match_type,
+            pr:p.prix_releve_ht, pp:p.prix_promo_ht, dat:p.date_releve, nb:p.nb_releves,
+          });
+          r.getCell('pr').numFmt = eurFmt;
+          r.getCell('pp').numFmt = eurFmt;
+          r.getCell('nb').numFmt = numFmt;
+        });
       });
     });
   }
