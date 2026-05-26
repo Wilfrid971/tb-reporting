@@ -475,8 +475,8 @@ function renderTree(data){
   </div>
   <div style="overflow-x:auto"><table class="tree-table"><thead><tr>
     <th>Niveau</th><th>Clients</th><th>Acheteurs</th><th>Cartons</th>
-    <th>Mon PV HT</th><th>Concurrent moy HT</th><th>Min / Max</th>
-    <th>Écart</th><th>Relevés</th><th>Dernier relevé</th>
+    <th>Mon PV HT</th><th>Mon relevé moy</th><th>Concurrent moy HT</th><th>Min / Max</th>
+    <th>Écart relevé</th><th>Relevés</th><th>Dernier relevé</th>
   </tr></thead><tbody>`;
 
   // Tree collapsed par défaut au niveau secteur : seuls les lvl-1 (secteurs) visibles.
@@ -487,7 +487,7 @@ function renderTree(data){
       <td>${fmt(s.totalClients)}</td>
       <td>${fmt(s.nbBuyers)}${pctAch!==null?` <span class="val-pct ${pctClass(pctAch)}">${fmt(pctAch,1)} %</span>`:''}</td>
       <td>${fmt(s.cartons)}</td>
-      <td colspan="4" class="muted" style="text-align:left;padding-left:20px">${s.children.length} ${dimL.toLowerCase()}(s)</td>
+      <td colspan="5" class="muted" style="text-align:left;padding-left:20px">${s.children.length} ${dimL.toLowerCase()}(s)</td>
       <td>${fmt(s.nb_releves)}</td><td></td></tr>`;
     s.children.forEach((m, mi) => {
       const mid = `dim-${si}-${mi}`;
@@ -495,7 +495,7 @@ function renderTree(data){
         <td></td>
         <td>${fmt(m.nbBuyers)}</td>
         <td>${fmt(m.cartons)}</td>
-        <td colspan="4" class="muted" style="text-align:left;padding-left:20px">${m.children.length} article(s)</td>
+        <td colspan="5" class="muted" style="text-align:left;padding-left:20px">${m.children.length} article(s)</td>
         <td>${fmt(m.nb_releves)}</td><td></td></tr>`;
       m.children.forEach((a) => {
         const ecartCls = a.ecart_pct === null || a.ecart_pct === undefined ? '' :
@@ -507,6 +507,7 @@ function renderTree(data){
           <td>${fmt(a.nbBuyers)}</td>
           <td>${fmt(a.cartons)}</td>
           <td>${fmtEur(a.pv_moyen_ht,2)}</td>
+          <td>${a.prix_mon_releve_moy_ht==null?'—':fmtEur(a.prix_mon_releve_moy_ht,2)}</td>
           <td>${fmtEur(a.prix_concurrent_moy_ht,2)}</td>
           <td>${minMax}</td>
           <td>${a.ecart_pct === null || a.ecart_pct === undefined ? '—' : `<span class="${ecartCls}">${fmtPct(a.ecart_pct)}</span>`}</td>

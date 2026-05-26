@@ -652,29 +652,51 @@ async function fetchPenetrationData(pool, query) {
     // bruts, déjà rattachés au secteur du client où le relevé a eu lieu). Un relevé fait
     // chez un client du secteur A ne compte donc QUE pour le secteur A, pas globalement
     // sur tous les secteurs où l'article est vendu.
+    // Split par type : "mon relevé" = relevés de MES références (match_type 'direct'),
+    // "concurrent" = relevés de produits concurrents (via_concurrent). La comparaison
+    // se fait terrain vs terrain (mon prix relevé vs prix concurrent relevé), pas vs PV.
     const releveBySecteurArt = new Map(); // `${secteur}||${art_id}` → stats relevé
     {
       const acc = new Map();
+      const blank = () => ({ n:0, sum:0, min:null, max:null });
       q4.recordset.forEach(row => {
         if (row.art_id == null) return;
         const key = `${row.secteur}||${row.art_id}`;
         let a = acc.get(key);
-        if (!a) { a = { n:0, clients:new Set(), sum:0, min:null, max:null, promoSum:0, promoN:0, dernier:null }; acc.set(key, a); }
+        if (!a) { a = { mine:blank(), conc:blank(), nb:0, clients:new Set(), promoSum:0, promoN:0, dernier:null }; acc.set(key, a); }
         const pr = parseFloat(row.prix_releve_ht);
-        a.n++; if (row.tir_id != null) a.clients.add(row.tir_id);
-        if (isFinite(pr)) { a.sum += pr; a.min = a.min==null?pr:Math.min(a.min,pr); a.max = a.max==null?pr:Math.max(a.max,pr); }
-        const pp = parseFloat(row.prix_promo_ht);
-        if (isFinite(pp)) { a.promoSum += pp; a.promoN++; }
+        a.nb++; if (row.tir_id != null) a.clients.add(row.tir_id);
+        const b = row.match_type === 'direct' ? a.mine : a.conc;
+        if (isFinite(pr)) { b.n++; b.sum += pr; b.min = b.min==null?pr:Math.min(b.min,pr); b.max = b.max==null?pr:Math.max(b.max,pr); }
+        if (row.match_type !== 'direct') { const pp = parseFloat(row.prix_promo_ht); if (isFinite(pp)) { a.promoSum += pp; a.promoN++; } }
         if ((row.date_releve||'') > (a.dernier||'')) a.dernier = row.date_releve;
       });
       acc.forEach((a, key) => releveBySecteurArt.set(key, {
-        nb_releves: a.n, nb_clients_releves: a.clients.size,
-        prix_concurrent_min_ht: a.min, prix_concurrent_max_ht: a.max,
-        prix_concurrent_moy_ht: a.n > 0 ? a.sum / a.n : null,
+        nb_releves: a.nb, nb_clients_releves: a.clients.size,
+        prix_mon_releve_moy_ht: a.mine.n > 0 ? a.mine.sum / a.mine.n : null, nb_mon_releve: a.mine.n,
+        prix_concurrent_moy_ht: a.conc.n > 0 ? a.conc.sum / a.conc.n : null, nb_concurrent: a.conc.n,
+        prix_concurrent_min_ht: a.conc.min, prix_concurrent_max_ht: a.conc.max,
         prix_promo_moy_ht: a.promoN > 0 ? a.promoSum / a.promoN : null,
         dernier_releve: a.dernier,
       }));
     }
+
+    // Articles RELEVÉS mais non vendus dans le secteur (cartons=0) : ajoutés au tree
+    // pour ne pas perdre le relevé (ex. un Moët relevé en Restaurant mais non vendu là).
+    // Source = Q4 (relevés résolus, secteur du client relevé + métadonnées article).
+    q4.recordset.forEach(row => {
+      if (row.art_id == null) return;
+      const sec = row.secteur, dimVal = row.dim_value, aid = row.art_id;
+      if (!root.has(sec)) root.set(sec, new Map());
+      const dimMap = root.get(sec);
+      if (!dimMap.has(dimVal)) dimMap.set(dimVal, new Map());
+      const artMap = dimMap.get(dimVal);
+      if (!artMap.has(aid)) {
+        artMap.set(aid, { art_id: aid, code: row.art_code, designation: row.art_designation,
+          buyers: new Set(), cartons: 0, ca: 0, qte: 0, releveOnly: true });
+        if (!artMeta.has(aid)) artMeta.set(aid, { code: row.art_code, designation: row.art_designation, dim_value: dimVal });
+      }
+    });
 
     // Sérialisation du tree
     const treeBySecteur = [];
@@ -690,19 +712,25 @@ async function fetchPenetrationData(pool, query) {
         artMap.forEach(node => {
           const releve = releveBySecteurArt.get(`${sec}||${node.art_id}`);
           const pv_moyen_ht = node.qte > 0 ? node.ca / node.qte : null;
-          const prix_conc_moy = releve ? releve.prix_concurrent_moy_ht : null;
-          const ecart_pct = (pv_moyen_ht && prix_conc_moy)
-            ? (pv_moyen_ht - prix_conc_moy) / pv_moyen_ht * 100 : null;
+          const prix_mon_releve = releve ? releve.prix_mon_releve_moy_ht : null;
+          const prix_conc_moy   = releve ? releve.prix_concurrent_moy_ht : null;
+          // Écart = mon prix relevé (terrain) vs prix concurrent relevé (terrain).
+          // Positif = je suis plus cher que le concurrent.
+          const ecart_pct = (prix_mon_releve && prix_conc_moy)
+            ? (prix_mon_releve - prix_conc_moy) / prix_mon_releve * 100 : null;
           articlesArr.push({
             type: 'article',
             art_id: node.art_id, code: node.code, designation: node.designation,
             nbBuyers: node.buyers.size,
             cartons: node.cartons, qte: node.qte, pv_moyen_ht,
+            prix_mon_releve_moy_ht: prix_mon_releve,
+            nb_mon_releve: releve?.nb_mon_releve || 0,
             nb_releves: releve?.nb_releves || 0,
             nb_clients_releves: releve?.nb_clients_releves || 0,
             prix_concurrent_min_ht: releve?.prix_concurrent_min_ht ?? null,
             prix_concurrent_moy_ht: prix_conc_moy,
             prix_concurrent_max_ht: releve?.prix_concurrent_max_ht ?? null,
+            nb_concurrent: releve?.nb_concurrent || 0,
             prix_promo_moy_ht: releve?.prix_promo_moy_ht ?? null,
             dernier_releve: releve?.dernier_releve || null,
             ecart_pct,
@@ -742,6 +770,7 @@ async function fetchPenetrationData(pool, query) {
         const articleGaps = [];
         const clientMissing = new Map();
         artMap.forEach(node => {
+          if (node.releveOnly) return; // article relevé mais non vendu : hors gaps de pénétration
           const absents = [];
           secClients.forEach(t => { if (!node.buyers.has(t)) absents.push(t); });
           if (absents.length) {
@@ -1093,6 +1122,7 @@ async function buildPenetrationExcel(data) {
     { header:'Acheteurs', key:'ach', width:11 },
     { header:'Cartons', key:'crt', width:12 },
     { header:'Mon PV HT', key:'pv', width:13 },
+    { header:'Mon relevé moy HT', key:'mrel', width:16 },
     { header:'Concurrent moy HT', key:'cmoy', width:18 },
     { header:'Concurrent min HT', key:'cmin', width:18 },
     { header:'Concurrent max HT', key:'cmax', width:18 },
@@ -1115,12 +1145,13 @@ async function buildPenetrationExcel(data) {
         const rA = wsTree.addRow({
           lvl:'    ART', lbl:'    '+(a.code||'')+' — '+(a.designation||''),
           ach:a.nbBuyers, crt:a.cartons,
-          pv:a.pv_moyen_ht, cmoy:a.prix_concurrent_moy_ht,
+          pv:a.pv_moyen_ht, mrel:a.prix_mon_releve_moy_ht, cmoy:a.prix_concurrent_moy_ht,
           cmin:a.prix_concurrent_min_ht, cmax:a.prix_concurrent_max_ht,
           ecart:a.ecart_pct, rel:a.nb_releves, der:a.dernier_releve,
         });
         rA.getCell('crt').numFmt  = numFmt;
         rA.getCell('pv').numFmt   = eurFmt;
+        rA.getCell('mrel').numFmt = eurFmt;
         rA.getCell('cmoy').numFmt = eurFmt;
         rA.getCell('cmin').numFmt = eurFmt;
         rA.getCell('cmax').numFmt = eurFmt;
