@@ -796,8 +796,6 @@ function loadBuiltin(id) {
     const pd = gf.periode_debut;
     if (pd === 'ytd') {
       params.set('annee', 'ytd');
-    } else if (pd === 'mtd') {
-      params.set('annee', 'ytd');
     } else if (pd.startsWith('ytd_exe:')) {
       // YTD exercice fiscal — format ytd_exe:d1:d2 (d1 début exercice, d2 fin exercice)
       const parts = pd.split(':');
@@ -1682,7 +1680,13 @@ function buildGfFromPeriode() {
   } else if (val === 'ytd') {
     gf.periode_debut = 'ytd'; gf.periode_fin = 'ytd';
   } else if (val === 'month') {
-    gf.periode_debut = 'mtd'; gf.periode_fin = 'mtd';
+    // Mois en cours = du 1er du mois à aujourd'hui, via le même chemin `exe:` que
+    // les périodes glissantes (30j/90j/12m). Avant, 'month' produisait 'mtd' qui
+    // retombait sur annee='ytd' dans loadBuiltin → identique à "YTD calendaire".
+    const today = new Date();
+    const first = new Date(today.getFullYear(), today.getMonth(), 1);
+    gf.periode_debut = `exe:${isoD(first)}:${isoD(today)}`;
+    gf.periode_fin = gf.periode_debut;
   } else if (val === '30j' || val === '90j' || val === '12m') {
     const today = new Date(), todayStr = isoD(today), from = new Date(today);
     if (val === '30j') from.setDate(from.getDate()-30);
