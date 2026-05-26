@@ -171,6 +171,7 @@
   <div id="gaps-article-section"></div>
   <div id="gaps-client-section"></div>
   <div id="pricing-section"></div>
+  <div id="unmatched-section"></div>
 </div>
 
 <script>
@@ -750,6 +751,61 @@ function renderPricing(data){
   sec.innerHTML = html;
 }
 
+// ── Produits concurrents non rattachés : secteur d'activité → client → produits ──
+// Relevés sur des produits concurrents sans correspondance article (pas de lien
+// EXT_ART_CONCURRENTS, ou réf inconnue) → invisibles dans les sections résolues.
+function renderNonRattaches(data){
+  const sec = qs('unmatched-section');
+  const list = data.concurrentsNonRattaches || [];
+  if (!list.length) { sec.innerHTML = ''; return; }
+  const totProd = list.reduce((s,e)=>s+(e.nb_produits||0),0);
+  const totRel  = list.reduce((s,e)=>s+(e.nb_releves||0),0);
+  let html = `<div class="section">
+    <div class="section-header">
+      <span class="section-title">🏷️ Produits concurrents non rattachés — par secteur d'activité → client</span>
+      <span class="section-sub">${totProd} produit(s) · ${totRel} relevé(s) · sans correspondance article</span>
+    </div>
+    <div class="gaps-card">`;
+  list.forEach((entry, si) => {
+    const sid = `nr-sec-${si}`;
+    html += `<div class="gaps-row">
+      <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
+        <span class="name">${escH(entry.secteur)}</span>
+        <span class="count">${entry.nb_clients} client(s) · ${entry.nb_produits} produit(s) · ${entry.nb_releves} relevé(s)</span>
+      </div>
+      <div class="gaps-body" id="${sid}">`;
+    entry.clients.forEach((c, ci) => {
+      const cid = `nr-cli-${si}-${ci}`;
+      html += `<div style="margin:6px 0;border-left:3px solid #ff9800;padding-left:8px">
+        <div onclick="document.getElementById('${cid}').classList.toggle('open')" style="cursor:pointer;display:flex;gap:8px;align-items:center;padding:4px 6px;background:rgba(255,152,0,.08)">
+          <span style="font-weight:600">${escH(c.nom)}</span>
+          <span class="muted" style="font-size:.7rem">${escH(c.code||'')}</span>
+          <span class="muted" style="margin-left:auto;font-size:.72rem">${c.nb_produits} produit(s) · ${c.nb_releves} relevé(s)</span>
+        </div>
+        <div class="gaps-body" id="${cid}" style="padding:4px 8px 8px 0">
+          <table class="pricing-table"><thead><tr>
+            <th>Réf</th><th>Produit concurrent</th><th>Marque</th><th>Date</th>
+            <th>Prix relevé HT</th><th>Promo HT</th><th>Relevés</th>
+          </tr></thead><tbody>${
+            c.produits.map(p => `<tr>
+              <td>${escH(p.ref||'')}</td>
+              <td class="muted">${escH(p.libelle||'')}</td>
+              <td class="muted">${escH(p.marque||'')}</td>
+              <td class="muted">${escH(p.date_releve||'')}</td>
+              <td>${fmtEur(p.prix_releve_ht,2)}</td>
+              <td class="muted">${fmtEur(p.prix_promo_ht,2)}</td>
+              <td>${p.nb_releves}</td>
+            </tr>`).join('')
+          }</tbody></table>
+        </div>
+      </div>`;
+    });
+    html += `</div></div>`;
+  });
+  html += `</div></div>`;
+  sec.innerHTML = html;
+}
+
 // ── Chart : prix relevé moyen par secteur × dim (Chart.js bar chart) ─────
 let _priceChart = null;
 function renderChart(data){
@@ -840,6 +896,7 @@ async function load(){
     renderGapsByArticle(data);
     renderGapsByClient(data);
     renderPricing(data);
+    renderNonRattaches(data);
     _firstLoadDone = true;
     dot.className = 'ok';
     banner.style.display = 'none';
@@ -848,7 +905,7 @@ async function load(){
     dot.className = 'err';
     banner.style.display = 'block';
     banner.textContent = 'Erreur : ' + err.message;
-    ['kpis','chart-section','tree-section','gaps-article-section','gaps-client-section','pricing-section']
+    ['kpis','chart-section','tree-section','gaps-article-section','gaps-client-section','pricing-section','unmatched-section']
       .forEach(id => qs(id).innerHTML = '');
     if (_priceChart) { _priceChart.destroy(); _priceChart = null; }
   } finally {
