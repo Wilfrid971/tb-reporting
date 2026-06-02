@@ -965,6 +965,9 @@ async function loadWidget(i, w, gf) {
         dimId: f.dimId,
         op: repl.op,
         val: repl.val,
+        // Préserver le caractère obligatoire (★) : le serveur l'applique alors en ET racine,
+        // sinon un filtre ★ pouvait être absorbé dans un groupe OU lors de la fusion toolbar.
+        ...(f.required    ? { required: true }             : {}),
         ...(f.connector   ? { connector: f.connector }     : {}),
         ...(f.openGroups  ? { openGroups: f.openGroups }   : {}),
         ...(f.closeGroups ? { closeGroups: f.closeGroups } : {}),

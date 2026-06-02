@@ -1474,6 +1474,7 @@ async function executeCustomSource(cs, overrideParams = {}, overrideMeasures = n
   const activeDimMap = getActiveDimensions();
   const ALLOWED_OPS = new Set(['=','!=','>','<','>=','<=','LIKE','NOT LIKE','IN','NOT IN','BETWEEN','IS NULL','IS NOT NULL']);
   const filterClauses = []; // { connector:'AND'|'OR', sql:string }
+  const mandatoryClauses = []; // filtres obligatoires (★) → toujours en ET racine (cf. plus bas)
   for (let fi = 0; fi < userFilters.length; fi++) {
     const flt = userFilters[fi];
     if (!flt.dimId || !ALLOWED_OPS.has(flt.op)) continue;
@@ -1538,11 +1539,20 @@ async function executeCustomSource(cs, overrideParams = {}, overrideMeasures = n
       }
     }
     if (clauseSQL) {
+      // Un filtre obligatoire (★) doit TOUJOURS s'appliquer en ET au niveau racine. S'il
+      // participe à un groupe OU (parenthèses + connector) et qu'un autre membre du groupe est
+      // retiré par la toolbar (ex : Année → Tous), l'auto-équilibrage des parenthèses ci-dessous
+      // pouvait l'absorber dans le OU → la condition obligatoire (ex : branche) se retrouvait
+      // court-circuitée et le rapport affichait « toutes les branches ». On l'isole donc du
+      // combine groupé : il ne porte ni connecteur OU ni parenthèses de groupe.
+      if (flt.required) { mandatoryClauses.push(clauseSQL); continue; }
       const og = Math.max(0, parseInt(flt.openGroups)  || 0);
       const cg = Math.max(0, parseInt(flt.closeGroups) || 0);
       filterClauses.push({ connector, sql: clauseSQL, og, cg });
     }
   }
+  // Filtres obligatoires : appliqués en ET racine, indépendamment du groupe OU optionnel.
+  for (const mc of mandatoryClauses) dimFilterSQL += ` AND (${mc})`;
   if (filterClauses.length) {
     // Auto-balance les parenthèses (corrige une saisie utilisateur incohérente)
     let totalOpen = 0, totalClose = 0;
