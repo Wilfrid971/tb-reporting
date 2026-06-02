@@ -1201,6 +1201,10 @@ async function executeCustomSource(cs, overrideParams = {}, overrideMeasures = n
     const SKIP_KEYS = new Set(['periode_debut','periode_fin','mois','annees','annee','dbs','asof','pr','mg','today','_userDatabase','_userConnId','filters']);
     const paramKeyToDim = {};
     Object.entries(DIM_FILTERS).forEach(([dimId, df]) => { paramKeyToDim[df.paramKey] = dimId; });
+    // Dims temps exposables comme filtres toolbar (paramKey === dimId côté client, DIM_FILTER_MAP).
+    // Absentes de DIM_FILTERS (pas de filterSQL dédié, elles passent par le bloc user-filters via
+    // activeDimMap) → on les ajoute ici pour que l'export/email applique le sélecteur comme le live.
+    ['time_annee','time_mois','time_anneemois','time_trimestre'].forEach(d => { paramKeyToDim[d] = d; });
     const toolbarReplacements = new Map();
     Object.entries(overrideParams).forEach(([k, v]) => {
       if (SKIP_KEYS.has(k)) return;
@@ -2644,7 +2648,14 @@ router.delete('/reports/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-const FILTER_KEYS = ['periode_debut','periode_fin','annee','mois','repid','depot','fouid'];
+// Clés de filtre acceptées depuis la toolbar (GET preview/html → buildHTML).
+// = contrôles globaux période + multi-année + TOUS les paramKeys de filtres dim (branche,
+// marque, time_annee…) pour que HTML/PDF/aperçu respectent les mêmes filtres que le live/Excel.
+const FILTER_KEYS = [
+  'periode_debut','periode_fin','annee','annees','mois','depot','fouid','dbs','asof','pr','mg',
+  ...Object.values(DIM_FILTERS).map(df => df.paramKey),
+  'time_annee','time_mois','time_anneemois','time_trimestre',
+];
 function extractFilterParams(query) {
   const fp = {};
   FILTER_KEYS.forEach(k => { if (query[k]) fp[k] = query[k]; });

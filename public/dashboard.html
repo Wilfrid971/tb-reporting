@@ -415,6 +415,14 @@ const DIM_FILTER_MAP = {
 };
 const TIME_DIMS = new Set(['time_annee','time_mois','time_mois_lib','time_anneemois','time_semaine','time_jour','time_date']);
 
+// Un multi-select de la toolbar pilote-t-il un filtre dim sauvegardé (branche, marque, time_annee…) ?
+// Si oui, le vider (décocher tout) doit RETIRER le filtre backoffice → on envoie une valeur vide ''
+// comme marqueur de suppression. Les contrôles globaux (mois, annees, dbs) ne sont pas concernés.
+function isDimSelectorKey(key) {
+  const entry = Object.entries(DIM_FILTER_MAP).find(([, df]) => df.paramKey === key);
+  return entry ? _activeDimSelectors.has(entry[0]) : false;
+}
+
 const chartInstances = new Map();
 function destroyChart(id) { if(chartInstances.has(id)){chartInstances.get(id).destroy();chartInstances.delete(id);} }
 
@@ -535,6 +543,7 @@ function getExportParams() {
     const key = wrap.dataset.key;
     const checked = [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c=>c.checked).map(c=>c.value);
     if (checked.length > 0) gf[key] = checked.join(',');
+    else if (isDimSelectorKey(key)) gf[key] = ''; // filtre dim vidé → marqueur de suppression du filtre backoffice
   });
   // Conserver mois et repid s'ils existent côté toolbar (cas où ce ne sont pas des selects bf-*)
   const repSel   = qs('bf-repid');
@@ -858,6 +867,7 @@ async function loadWidgets() {
     const key = wrap.dataset.key;
     const checked = [...wrap.querySelectorAll('input[type=checkbox]:not(.ms-all)')].filter(c=>c.checked).map(c=>c.value);
     if (checked.length > 0) gf[key] = checked.join(',');
+    else if (isDimSelectorKey(key)) gf[key] = ''; // filtre dim vidé → marqueur de suppression du filtre backoffice
   });
 
   try {
