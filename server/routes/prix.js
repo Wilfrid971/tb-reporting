@@ -880,7 +880,7 @@ async function fetchPenetrationData(pool, query) {
 
     // ───── Chart data : prix relevé moyen par secteur × dim_value ───────────
     // Aggr Q4 par (secteur, dim_value) → moyenne prix relevé HT.
-    const chartAcc = new Map(); // `${sec}|${dim}` → { sum, n }
+    const chartAcc = new Map(); // `${sec}|${dim}` → { sum, n, min, max }
     const chartDimSet = new Set();
     const chartSecSet = new Set();
     q4.recordset.forEach(row => {
@@ -888,10 +888,13 @@ async function fetchPenetrationData(pool, query) {
       if (sec == null || dv == null) return;
       chartSecSet.add(sec); chartDimSet.add(dv);
       const key = `${sec}|${dv}`;
-      if (!chartAcc.has(key)) chartAcc.set(key, { sum: 0, n: 0 });
+      if (!chartAcc.has(key)) chartAcc.set(key, { sum: 0, n: 0, min: Infinity, max: -Infinity });
       const slot = chartAcc.get(key);
-      slot.sum += parseFloat(row.prix_releve_ht) || 0;
+      const px = parseFloat(row.prix_releve_ht) || 0;
+      slot.sum += px;
       slot.n   += 1;
+      if (px < slot.min) slot.min = px;
+      if (px > slot.max) slot.max = px;
     });
     const chartSecteurs = Array.from(chartSecSet).sort((a, b) => a.localeCompare(b, 'fr'));
     const chartDims     = Array.from(chartDimSet).sort((a, b) => a.localeCompare(b, 'fr'));
@@ -901,7 +904,138 @@ async function fetchPenetrationData(pool, query) {
         const slot = chartAcc.get(`${sec}|${dv}`);
         return slot && slot.n > 0 ? slot.sum / slot.n : null;
       }),
+      prixMinHt: chartSecteurs.map(sec => {
+        const slot = chartAcc.get(`${sec}|${dv}`);
+        return slot && slot.n > 0 ? slot.min : null;
+      }),
+      prixMaxHt: chartSecteurs.map(sec => {
+        const slot = chartAcc.get(`${sec}|${dv}`);
+        return slot && slot.n > 0 ? slot.max : null;
+      }),
     }));
+
+    // ───── Q7 : VOLUME (cartons) par catégorie client × mois, période courante
+    // ET N-1 (même plage décalée d'un an). Alimente les barres du graphique mensuel.
+    // Pas de découpe par dimension article : on agrège tout le périmètre filtré.
+    const r7 = pool.request();
+    bindCommon(r7);
+    // dN1/fN1 ne sont bindés par bindCommon qu'en mode period : on les garantit ici
+    // (Q7 et Q8) car la fenêtre N-1 est nécessaire quel que soit le mode.
+    if (!isPeriodMode) {
+      r7.input('dN1', sql.VarChar(10), dN1);
+      r7.input('fN1', sql.VarChar(10), fN1);
+    }
+    const q7 = await r7.query(`
+      SELECT
+        ISNULL(RTRIM(tc.TIRACTIVITE),'Non défini')          AS secteur,
+        YEAR(pv.PCVDATEEFFET)                               AS yr,
+        MONTH(pv.PCVDATEEFFET)                              AS mo,
+        SUM(CAST(pl.PLVQTE AS float) / CASE WHEN ISNULL(pl.PLVD3, 0) = 0 THEN 1 ELSE pl.PLVD3 END
+            * pn.PINSENSSTATISTIQUE)                        AS cartons
+      FROM PIECEVENTELIGNES pl WITH (NOLOCK)
+      JOIN PIECEVENTES pv WITH (NOLOCK)    ON pv.PCVID=pl.PCVID
+      JOIN PIECE_NATURE pn WITH (NOLOCK)   ON pn.PINID=pv.PINID
+      JOIN ARTICLES a WITH (NOLOCK)        ON a.ARTID=pl.ARTID
+      JOIN TIERS tc WITH (NOLOCK)          ON tc.TIRID=pv.TIRID
+      WHERE pn.PITCODE='F' AND pn.PINSENSSTATISTIQUE<>0 AND a.ARTISSTATISTIQUE='O'
+        AND tc.TIRTYPE='C'${cliActifCond}${periodCond}
+        AND (
+          (pv.PCVDATEEFFET >= @date_debut AND pv.PCVDATEEFFET <  DATEADD(day, 1, @date_fin))
+          OR (pv.PCVDATEEFFET >= @dN1 AND pv.PCVDATEEFFET <  DATEADD(day, 1, @fN1))
+        )
+        ${marqueF} ${familleF} ${secteurFTc} ${repCliF}
+      GROUP BY tc.TIRACTIVITE, YEAR(pv.PCVDATEEFFET), MONTH(pv.PCVDATEEFFET)
+    `);
+
+    // ───── Q8 : PRIX RELEVÉ (distribution) par catégorie client × mois, période
+    // courante ET N-1. Prix effectif HT = promo si présent (>0) sinon prix relevé,
+    // ÷ tva_coef. Permet de visualiser l'influence des prix promo sur le volume.
+    // Borné aux relevés rattachés à un de nos articles (resolved_ARTID), pour rester
+    // cohérent avec le volume vendu et respecter les filtres marque/famille.
+    const r8 = pool.request();
+    bindCommon(r8);
+    if (!isPeriodMode) {
+      r8.input('dN1', sql.VarChar(10), dN1);
+      r8.input('fN1', sql.VarChar(10), fN1);
+    }
+    const q8 = await r8.query(`
+      WITH releve_base AS (
+        SELECT r.TIRID, r.PRIX_RELEVE, r.PRIX_PROMO, r.DATE_RELEVE,
+               a_direct.ARTID AS artid_direct,
+               p.IDProduit, ac.ARTID AS artid_via_concurrent
+        FROM EXT_RELEVE_PRIX r WITH (NOLOCK)
+        LEFT JOIN ARTICLES a_direct WITH (NOLOCK)
+               ON a_direct.ARTCODE = r.REFERENCE_ARTICLE AND a_direct.ARTISSTATISTIQUE = 'O'
+        LEFT JOIN EXT_Produits p WITH (NOLOCK)         ON p.Code_Produit = r.REFERENCE_ARTICLE
+        LEFT JOIN EXT_ART_CONCURRENTS ac WITH (NOLOCK) ON ac.IDProduit = p.IDProduit
+        WHERE r.STATUT IN ('envoyee','validee') AND r.PRIX_RELEVE IS NOT NULL
+          AND (
+            (r.DATE_RELEVE >= @date_debut AND r.DATE_RELEVE <  DATEADD(day, 1, @date_fin))
+            OR (r.DATE_RELEVE >= @dN1 AND r.DATE_RELEVE <  DATEADD(day, 1, @fN1))
+          )
+      ),
+      releve_resolved AS (
+        SELECT *, COALESCE(artid_direct, artid_via_concurrent) AS resolved_ARTID FROM releve_base
+      )
+      SELECT
+        ISNULL(RTRIM(t.TIRACTIVITE),'Non défini')                                   AS secteur,
+        YEAR(r.DATE_RELEVE)                                                         AS yr,
+        MONTH(r.DATE_RELEVE)                                                        AS mo,
+        AVG(COALESCE(NULLIF(CAST(r.PRIX_PROMO AS float),0), CAST(r.PRIX_RELEVE AS float)) / @tva_coef) AS prix_eff_ht,
+        SUM(CASE WHEN ISNULL(CAST(r.PRIX_PROMO AS float),0) > 0 THEN 1 ELSE 0 END)   AS nb_promo,
+        COUNT(*)                                                                    AS nb_releves
+      FROM releve_resolved r
+      JOIN ARTICLES a WITH (NOLOCK) ON a.ARTID = r.resolved_ARTID
+      LEFT JOIN TIERS t WITH (NOLOCK) ON t.TIRID = r.TIRID
+      WHERE r.resolved_ARTID IS NOT NULL
+        ${marqueF} ${familleF} ${releveCliF}
+      GROUP BY t.TIRACTIVITE, YEAR(r.DATE_RELEVE), MONTH(r.DATE_RELEVE)
+    `);
+
+    // Mois de la période courante (inclus), pour aligner N et N-1 par position :
+    // le mois N-1 d'un mois (y,m) est exactement (y-1,m) puisque la fenêtre N-1 est
+    // la période décalée d'un an.
+    const FR_MONTHS = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+    const periodMonths = [];
+    {
+      const [y0, m0] = p.date_debut.split('-').map(Number);
+      const [y1, m1] = p.date_fin.split('-').map(Number);
+      let yy = y0, mm = m0;
+      // garde-fou 120 mois : évite une boucle folle sur dates aberrantes.
+      while ((yy < y1 || (yy === y1 && mm <= m1)) && periodMonths.length < 120) {
+        periodMonths.push({ y: yy, m: mm, label: `${FR_MONTHS[mm - 1]} ${yy}` });
+        mm++; if (mm > 12) { mm = 1; yy++; }
+      }
+    }
+    const cartonAcc = new Map();     // `${secteur}|${yr}-${mo}` → cartons
+    const monthlySecSet = new Set();
+    q7.recordset.forEach(row => {
+      monthlySecSet.add(row.secteur);
+      cartonAcc.set(`${row.secteur}|${row.yr}-${row.mo}`, parseFloat(row.cartons) || 0);
+    });
+    const priceAcc = new Map();      // `${secteur}|${yr}-${mo}` → { prix, nbPromo, nb }
+    q8.recordset.forEach(row => {
+      monthlySecSet.add(row.secteur);
+      priceAcc.set(`${row.secteur}|${row.yr}-${row.mo}`, {
+        prix: parseFloat(row.prix_eff_ht) || 0,
+        nbPromo: parseInt(row.nb_promo) || 0,
+        nb: parseInt(row.nb_releves) || 0,
+      });
+    });
+    const monthlyCategories = Array.from(monthlySecSet).map(sec => {
+      const cartons = (y, m) => cartonAcc.has(`${sec}|${y}-${m}`) ? cartonAcc.get(`${sec}|${y}-${m}`) : null;
+      const price   = (y, m) => priceAcc.get(`${sec}|${y}-${m}`) || null;
+      const cartonsN  = periodMonths.map(pm => cartons(pm.y,     pm.m));
+      const cartonsN1 = periodMonths.map(pm => cartons(pm.y - 1, pm.m));
+      const prixN     = periodMonths.map(pm => { const c = price(pm.y,     pm.m); return c ? c.prix : null; });
+      const prixN1    = periodMonths.map(pm => { const c = price(pm.y - 1, pm.m); return c ? c.prix : null; });
+      // Mois en promo (≥1 relevé promo) pour la période N : sert au marquage visuel.
+      const promoN    = periodMonths.map(pm => { const c = price(pm.y, pm.m); return !!(c && c.nbPromo > 0); });
+      const totalCartonsN  = cartonsN.reduce((s, v) => s + (v || 0), 0);
+      const totalCartonsN1 = cartonsN1.reduce((s, v) => s + (v || 0), 0);
+      return { secteur: sec, cartonsN, cartonsN1, prixN, prixN1, promoN, totalCartonsN, totalCartonsN1 };
+    }).filter(c => c.totalCartonsN !== 0 || c.totalCartonsN1 !== 0)
+      .sort((a, b) => (b.totalCartonsN - a.totalCartonsN) || a.secteur.localeCompare(b.secteur, 'fr'));
 
     // ───── KPIs globaux (cartons remplace CA) ───────────────────────────────
     const globalBuyers = new Set();
@@ -943,6 +1077,12 @@ async function fetchPenetrationData(pool, query) {
         secteurs: chartSecteurs,
         series: chartSeries,
         dimLabel: dim,
+      },
+      chartMonthly: {
+        months: periodMonths.map(pm => pm.label),
+        categories: monthlyCategories,
+        periode:   { date_debut: p.date_debut, date_fin: p.date_fin },
+        periodeN1: { date_debut: dN1, date_fin: fN1 },
       },
     };
 }
@@ -1103,7 +1243,7 @@ async function buildPenetrationExcel(data) {
   wsSyn.addRow({ k:'Dimension article',        v:dimL });
   wsSyn.addRow({ k:'Filtre clients',           v:filtres.cliactif || 'O' });
   wsSyn.addRow({ k:'Base',                     v:`${data.db?.database || ''}${data.db?.societe ? ' · '+data.db.societe : ''}` });
-  wsSyn.addRow({ k:'Secteurs filtrés',         v:(filtres.secteurs||[]).join(', ') || '(tous)' });
+  wsSyn.addRow({ k:'Catégories client filtrées', v:(filtres.secteurs||[]).join(', ') || '(toutes)' });
   wsSyn.addRow({ k:`${dimL} filtrée(s)`,        v:(filtres.marques||[]).join(', ') || '(toutes)' });
   wsSyn.addRow({ k:'Familles filtrées',        v:(filtres.familles||[]).join(', ') || '(toutes)' });
   wsSyn.addRow({ k:'Clients portefeuille',     v:k.totalClientsPortefeuille||0 }).getCell('v').numFmt = numFmt;
@@ -1123,9 +1263,9 @@ async function buildPenetrationExcel(data) {
     { header:'Cartons', key:'crt', width:12 },
     { header:'Mon PV HT', key:'pv', width:13 },
     { header:'Mon relevé moy HT', key:'mrel', width:16 },
-    { header:'Concurrent moy HT', key:'cmoy', width:18 },
-    { header:'Concurrent min HT', key:'cmin', width:18 },
-    { header:'Concurrent max HT', key:'cmax', width:18 },
+    { header:'Distribution moy HT', key:'cmoy', width:18 },
+    { header:'Distribution min HT', key:'cmin', width:18 },
+    { header:'Distribution max HT', key:'cmax', width:18 },
     { header:'Écart %', key:'ecart', width:10 },
     { header:'Relevés', key:'rel', width:9 },
     { header:'Dernier relevé', key:'der', width:13 },
@@ -1163,7 +1303,7 @@ async function buildPenetrationExcel(data) {
   // ── Sheet 3 : Gaps articles (par secteur×dim×article → clients absents) ──
   const wsGapsArt = wb.addWorksheet('Gaps articles');
   wsGapsArt.columns = [
-    { header:'Secteur', key:'sec', width:25 },
+    { header:'Catégorie client', key:'sec', width:25 },
     { header:dimL,      key:'dim', width:22 },
     { header:'Code article', key:'cod', width:14 },
     { header:'Désignation', key:'des', width:45 },
@@ -1191,7 +1331,7 @@ async function buildPenetrationExcel(data) {
   // ── Sheet 4 : Gaps clients (par client → articles manquants par dim) ────
   const wsGapsCli = wb.addWorksheet('Gaps clients');
   wsGapsCli.columns = [
-    { header:'Secteur', key:'sec', width:25 },
+    { header:'Catégorie client', key:'sec', width:25 },
     { header:dimL,      key:'dim', width:22 },
     { header:'Client', key:'cli', width:35 },
     { header:'Code client', key:'cco', width:14 },
@@ -1216,16 +1356,16 @@ async function buildPenetrationExcel(data) {
     });
   });
 
-  // ── Sheet 5 : Prix par secteur > client > article ───────────────────────
-  const wsPri = wb.addWorksheet('Prix concurrents');
+  // ── Sheet 5 : Prix par catégorie client > article > client ──────────────
+  const wsPri = wb.addWorksheet('Prix distribution');
   wsPri.columns = [
-    { header:'Secteur', key:'sec', width:25 },
-    { header:'Client', key:'cli', width:35 },
-    { header:'Code client', key:'cco', width:14 },
-    { header:'Commercial', key:'com', width:22 },
+    { header:'Catégorie client', key:'sec', width:25 },
     { header:'Code article', key:'cod', width:14 },
     { header:'Article', key:'des', width:40 },
     { header:'Marque article', key:'mar', width:20 },
+    { header:'Client', key:'cli', width:35 },
+    { header:'Code client', key:'cco', width:14 },
+    { header:'Commercial', key:'com', width:22 },
     { header:'Date relevé', key:'dat', width:12 },
     { header:'Prix relevé HT', key:'pr', width:14 },
     { header:'Promo HT', key:'pp', width:13 },
@@ -1237,27 +1377,40 @@ async function buildPenetrationExcel(data) {
   wsPri.getRow(1).eachCell(c => { c.fill=headerFill; c.font=headerFont; c.border=border; c.alignment={horizontal:'center',wrapText:true}; });
   wsPri.views = [{ state:'frozen', ySplit:1 }];
   (data.pricingBySecteur || []).forEach(entry => {
+    // Pivot client→article en article→client : tri catégorie → code article → client.
+    const artMap = new Map();
     (entry.clients || []).forEach(c => {
       (c.articles || []).forEach(a => {
-        const r = wsPri.addRow({
-          sec:entry.secteur, cli:c.nom, cco:c.code, com:c.commercial,
-          cod:a.code, des:a.designation, mar:a.marque,
-          dat:a.date_releve,
-          pr:a.prix_releve_ht, pp:a.prix_promo_ht, pv:a.mon_pv_ht, ec:a.ecart_pct,
-          mre:a.marque_releve, mat:a.match_type,
-        });
-        r.getCell('pr').numFmt = eurFmt;
-        r.getCell('pp').numFmt = eurFmt;
-        r.getCell('pv').numFmt = eurFmt;
-        r.getCell('ec').numFmt = pctFmt;
+        const k = a.art_id != null ? `id:${a.art_id}` : `code:${a.code||''}`;
+        if (!artMap.has(k)) artMap.set(k, { code:a.code, designation:a.designation, marque:a.marque, rows:[] });
+        artMap.get(k).rows.push({ c, a });
       });
     });
+    Array.from(artMap.values())
+      .sort((x, y) => (x.code||'').localeCompare(y.code||'', 'fr', { numeric:true }))
+      .forEach(art => {
+        art.rows.sort((p, q) => (p.c.nom||'').localeCompare(q.c.nom||'', 'fr')
+                                || (q.a.date_releve||'').localeCompare(p.a.date_releve||''));
+        art.rows.forEach(({ c, a }) => {
+          const r = wsPri.addRow({
+            sec:entry.secteur, cod:a.code, des:a.designation, mar:a.marque,
+            cli:c.nom, cco:c.code, com:c.commercial,
+            dat:a.date_releve,
+            pr:a.prix_releve_ht, pp:a.prix_promo_ht, pv:a.mon_pv_ht, ec:a.ecart_pct,
+            mre:a.marque_releve, mat:a.match_type,
+          });
+          r.getCell('pr').numFmt = eurFmt;
+          r.getCell('pp').numFmt = eurFmt;
+          r.getCell('pv').numFmt = eurFmt;
+          r.getCell('ec').numFmt = pctFmt;
+        });
+      });
   });
 
   // ── Sheet 6 : Chart data (prix relevé moyen par secteur × dim) ──────────
   if (data.chart && data.chart.secteurs.length && data.chart.series.length) {
     const wsChart = wb.addWorksheet(`Prix moy × ${dimL}`);
-    wsChart.addRow(['Secteur', ...data.chart.series.map(s => s.dim_value)]);
+    wsChart.addRow(['Catégorie client', ...data.chart.series.map(s => s.dim_value)]);
     wsChart.getRow(1).eachCell(c => { c.fill=headerFill; c.font=headerFont; c.border=border; });
     data.chart.secteurs.forEach((sec, i) => {
       const row = [sec, ...data.chart.series.map(s => s.prixMoyHt[i])];
@@ -1269,13 +1422,13 @@ async function buildPenetrationExcel(data) {
 
   // ── Sheet 7 : Concurrents relevés par client ────────────────────────────
   if ((data.concurrents || []).length) {
-    const wsConc = wb.addWorksheet('Concurrents par client');
+    const wsConc = wb.addWorksheet('Distribution par client');
     wsConc.columns = [
-      { header:'Secteur', key:'sec', width:25 },
+      { header:'Catégorie client', key:'sec', width:25 },
       { header:'Client', key:'cli', width:35 },
       { header:'Code client', key:'cco', width:14 },
       { header:'Commercial', key:'com', width:22 },
-      { header:'Produit concurrent', key:'lib', width:40 },
+      { header:'Produit distribution', key:'lib', width:40 },
       { header:'Référence', key:'ref', width:18 },
       { header:'Marque', key:'mar', width:18 },
       { header:`Classification (${dimL})`, key:'cla', width:22 },
@@ -1303,13 +1456,13 @@ async function buildPenetrationExcel(data) {
 
   // ── Sheet 8 : Produits concurrents non rattachés (secteur → client → produit) ──
   if ((data.concurrentsNonRattaches || []).length) {
-    const wsNR = wb.addWorksheet('Concurrents non rattachés');
+    const wsNR = wb.addWorksheet('Distribution non rattachés');
     wsNR.columns = [
-      { header:'Secteur', key:'sec', width:25 },
+      { header:'Catégorie client', key:'sec', width:25 },
       { header:'Client', key:'cli', width:35 },
       { header:'Code client', key:'cco', width:14 },
       { header:'Référence', key:'ref', width:18 },
-      { header:'Produit concurrent', key:'lib', width:42 },
+      { header:'Produit distribution', key:'lib', width:42 },
       { header:'Marque', key:'mar', width:20 },
       { header:'Type relevé', key:'typ', width:18 },
       { header:'Prix relevé HT', key:'pr', width:14 },
@@ -1374,7 +1527,7 @@ function buildPenetrationHTML(data) {
     @page{size:A4 landscape;margin:10mm 8mm}
     .pagebreak{page-break-before:always}
   </style></head><body>
-  <h1>💰 Pénétration prix concurrents</h1>
+  <h1>💰 Pénétration prix distribution</h1>
   <div class="meta">
     Période : ${esc(data.periode.date_debut)} → ${esc(data.periode.date_fin)}
     ${data.periodeN1 ? `· N-1 : ${esc(data.periodeN1.date_debut)} → ${esc(data.periodeN1.date_fin)}` : ''}
@@ -1382,7 +1535,7 @@ function buildPenetrationHTML(data) {
     · Dim : ${esc(dimL)}
     · Filtre clients : ${esc(f.cliactif || 'O')}
     · Base : ${esc(data.db?.database || '')}${data.db?.societe ? ' · '+esc(data.db.societe) : ''}
-    · Secteurs : ${(f.secteurs||[]).map(esc).join(', ') || '(tous)'}
+    · Catégories client : ${(f.secteurs||[]).map(esc).join(', ') || '(toutes)'}
     · ${esc(dimL)} : ${(f.marques||[]).map(esc).join(', ') || '(toutes)'}
     · Familles : ${(f.familles||[]).map(esc).join(', ') || '(toutes)'}
     · Généré le ${new Date(data.generatedAt).toLocaleString('fr-FR')}
@@ -1395,11 +1548,11 @@ function buildPenetrationHTML(data) {
     <div class="kpi"><div class="l">Articles à risque</div><div class="v">${fmt(k.nbArticlesARisque)}</div></div>
   </div>
 
-  <h2>📂 Hiérarchie secteur → ${esc(dimL.toLowerCase())} → article</h2>
+  <h2>📂 Hiérarchie catégorie client → ${esc(dimL.toLowerCase())} → article</h2>
   <table>
     <thead><tr>
       <th>Niveau</th><th>Clients</th><th>Acheteurs</th><th>Cartons</th>
-      <th>Mon PV</th><th>Conc. moy</th><th>Min / Max</th><th>Écart</th><th>Relevés</th>
+      <th>Mon PV</th><th>Distrib. moy</th><th>Min / Max</th><th>Écart</th><th>Relevés</th>
     </tr></thead><tbody>`;
   (data.treeBySecteur || []).forEach(s => {
     html += `<tr class="lvl-sec"><td>${esc(s.label)}</td><td>${fmt(s.totalClients)}</td><td>${fmt(s.nbBuyers)}</td><td>${fmt(s.cartons)}</td><td colspan="4">${s.children.length} ${esc(dimL.toLowerCase())}(s)</td><td>${fmt(s.nb_releves)}</td></tr>`;
@@ -1434,23 +1587,38 @@ function buildPenetrationHTML(data) {
     });
   }
 
-  // Pricing par secteur > client > article
+  // Pricing par catégorie client > article > client
   if ((data.pricingBySecteur || []).length) {
-    html += `<div class="pagebreak"></div><h2>💶 Comparatif prix concurrents — par secteur d'activité → client → article</h2>`;
+    html += `<div class="pagebreak"></div><h2>💶 Comparatif prix distribution — par catégorie client → article → client</h2>`;
     data.pricingBySecteur.forEach(entry => {
-      html += `<h3 style="font-size:10pt;margin:8px 0 4px;color:#1B5E20;border-bottom:1px solid #1B5E20">${esc(entry.secteur)} <small style="color:#666;font-weight:400">· ${entry.nb_clients} client(s) · ${entry.nb_releves} relevé(s)</small></h3>`;
-      entry.clients.forEach(c => {
-        html += `<h4 style="font-size:9pt;margin:6px 0 2px;color:#444">${esc(c.nom)} <small style="color:#888;font-weight:400">· ${esc(c.code||'')} · ${esc(c.commercial||'')}</small></h4>`;
+      // Pivot client→article en article→client.
+      const artMap = new Map();
+      (entry.clients || []).forEach(c => {
+        (c.articles || []).forEach(a => {
+          const k = a.art_id != null ? `id:${a.art_id}` : `code:${a.code||''}`;
+          if (!artMap.has(k)) artMap.set(k, { code:a.code, designation:a.designation, marque:a.marque, rows:[] });
+          artMap.get(k).rows.push({ c, a });
+        });
+      });
+      const articles = Array.from(artMap.values()).map(art => {
+        art.rows.sort((p, q) => (p.c.nom||'').localeCompare(q.c.nom||'', 'fr')
+                                || (q.a.date_releve||'').localeCompare(p.a.date_releve||''));
+        art.nbClients = new Set(art.rows.map(r => r.c.nom)).size;
+        return art;
+      }).sort((x, y) => (x.code||'').localeCompare(y.code||'', 'fr', { numeric:true }));
+      html += `<h3 style="font-size:10pt;margin:8px 0 4px;color:#1B5E20;border-bottom:1px solid #1B5E20">${esc(entry.secteur)} <small style="color:#666;font-weight:400">· ${articles.length} article(s) · ${entry.nb_releves} relevé(s)</small></h3>`;
+      articles.forEach(art => {
+        html += `<h4 style="font-size:9pt;margin:6px 0 2px;color:#444">${esc(art.code||'')} ${esc(art.designation || '')} <small style="color:#888;font-weight:400">${art.marque?'· '+esc(art.marque)+' ':''}· ${art.nbClients} client(s)</small></h4>`;
         html += `<table><thead><tr>
-          <th>Code</th><th>Article</th><th>Date</th>
+          <th>Client</th><th>Commercial</th><th>Date</th>
           <th>Prix relevé</th><th>Promo</th><th>Mon PV</th><th>Écart</th>
         </tr></thead><tbody>`;
-        c.articles.forEach(a => {
+        art.rows.forEach(({ c, a }) => {
           const ec = a.ecart_pct;
           const ecCls = ec==null ? '' : (ec >= 5 ? 'ecart-bad' : (ec <= -2 ? 'ecart-good' : 'ecart-avg'));
           html += `<tr>
-            <td>${esc(a.code||'')}</td>
-            <td>${esc(a.designation || '')}</td>
+            <td>${esc(c.nom||'')} <small style="color:#999">${esc(c.code||'')}</small></td>
+            <td>${esc(c.commercial || '')}</td>
             <td>${esc(a.date_releve || '')}</td>
             <td>${fmtEur(a.prix_releve_ht, 2)}</td>
             <td>${fmtEur(a.prix_promo_ht, 2)}</td>

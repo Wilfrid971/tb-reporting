@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pénétration prix — Relevés concurrents — TB Reporting</title>
+  <title>Pénétration prix — Relevés distribution — TB Reporting</title>
   <script src="/auth-client.js"></script>
   <script>AUTH.require("dashboard"); AUTH.installFetchInterceptor();</script>
   <script src="/theme.js"></script>
@@ -127,11 +127,11 @@
 <body>
 
 <header>
-  <h1>💰 Prix concurrents — pénétration</h1>
+  <h1>💰 Prix distribution — pénétration</h1>
   <a class="nav-link" href="/tb-reporting.html">← TB Reporting</a>
   <a class="nav-link" href="/dashboard.html">📋 Rapports</a>
   <div class="fld-grp">📅 <input type="date" id="sel-date-debut"> → <input type="date" id="sel-date-fin"></div>
-  <div class="ms-wrap" id="ms-secteurs"><button class="ms-btn" type="button"><span>Tous les secteurs</span></button><div class="ms-dd"></div></div>
+  <div class="ms-wrap" id="ms-secteurs"><button class="ms-btn" type="button"><span>Toutes les catégories client</span></button><div class="ms-dd"></div></div>
   <div class="ms-wrap" id="ms-marques"><button class="ms-btn" type="button"><span>Toutes les marques</span></button><div class="ms-dd"></div></div>
   <div class="ms-wrap" id="ms-familles"><button class="ms-btn" type="button"><span>Toutes les familles</span></button><div class="ms-dd"></div></div>
   <div class="ms-wrap" id="ms-reps"><button class="ms-btn" type="button"><span>Tous les commerciaux</span></button><div class="ms-dd"></div></div>
@@ -167,6 +167,7 @@
   <div id="error-banner" class="error-banner"></div>
   <div id="kpis" class="kpi-row"></div>
   <div id="chart-section"></div>
+  <div id="monthly-section"></div>
   <div id="tree-section" class="section"></div>
   <div id="gaps-article-section"></div>
   <div id="gaps-client-section"></div>
@@ -304,7 +305,7 @@ async function initFilters(){
   // sur gros volume) — ils marquent juste les filtres comme modifiés (markDirty).
   // L'affichage se fait au clic sur « Actualiser ». La dropdown dimension reste
   // rafraîchie (requête légère) sur changement de dimension/famille.
-  setupMS('ms-secteurs', (data.secteurs||[]).map(s => ({ id:s, label:s })), SELECTED_SECTEURS, 'Tous les secteurs', markDirty);
+  setupMS('ms-secteurs', (data.secteurs||[]).map(s => ({ id:s, label:s })), SELECTED_SECTEURS, 'Toutes les catégories client', markDirty);
   setupMS('ms-marques',  (data.marques||[]).map(m  => ({ id:m, label:m })), SELECTED_MARQUES,  'Toutes les marques', markDirty);
   setupMS('ms-familles', (data.familles||[]).map(f => ({ id:f, label:f })), SELECTED_FAMILLES, 'Toutes les familles', onFamilleChange);
   setupMS('ms-reps',     (data.commerciaux||[]).map(c => ({ id:c.TIRID, label:c.nom })), SELECTED_REPS, 'Tous les commerciaux', markDirty);
@@ -349,7 +350,7 @@ async function initFilters(){
       if (allCb) allCb.checked = !anyChecked;
       const span = b.querySelector('span');
       let set = null, labelAll = '';
-      if (wrap.id === 'ms-secteurs') { set = SELECTED_SECTEURS; labelAll = 'Tous les secteurs'; }
+      if (wrap.id === 'ms-secteurs') { set = SELECTED_SECTEURS; labelAll = 'Toutes les catégories client'; }
       else if (wrap.id === 'ms-marques')  { set = SELECTED_MARQUES;  labelAll = 'Toutes les marques'; }
       else if (wrap.id === 'ms-familles') { set = SELECTED_FAMILLES; labelAll = 'Toutes les familles'; }
       else if (wrap.id === 'ms-reps')     { set = SELECTED_REPS;     labelAll = 'Tous les commerciaux'; }
@@ -376,6 +377,9 @@ function skeleton(){
   qs('gaps-article-section').innerHTML = '';
   qs('gaps-client-section').innerHTML = '';
   qs('pricing-section').innerHTML = '';
+  qs('monthly-section').innerHTML = '';
+  _monthlyCharts.forEach(c => { try { c.destroy(); } catch(e){} });
+  _monthlyCharts = [];
 }
 
 // Libellé court pour la dim affichée
@@ -464,18 +468,18 @@ function renderTree(data){
   const sec = qs('tree-section');
   const dimL = dimLbl(data.dim);
   if (!tree.length) {
-    sec.innerHTML = `<div class="section-header"><span class="section-title">📂 Hiérarchie secteur → ${dimL} → article</span></div>
+    sec.innerHTML = `<div class="section-header"><span class="section-title">📂 Hiérarchie catégorie client → ${dimL} → article</span></div>
       <div style="padding:20px;text-align:center;color:var(--muted)">Aucune donnée sur la période.</div>`;
     return;
   }
 
   let html = `<div class="section-header">
-    <span class="section-title">📂 Hiérarchie secteur → ${dimL} → article</span>
-    <span class="section-sub">${tree.length} secteur(s) · TVA ${data.tva} %</span>
+    <span class="section-title">📂 Hiérarchie catégorie client → ${dimL} → article</span>
+    <span class="section-sub">${tree.length} catégorie(s) client · TVA ${data.tva} %</span>
   </div>
   <div style="overflow-x:auto"><table class="tree-table"><thead><tr>
     <th>Niveau</th><th>Clients</th><th>Acheteurs</th><th>Cartons</th>
-    <th>Mon PV HT</th><th>Mon relevé moy</th><th>Concurrent moy HT</th><th>Min / Max</th>
+    <th>Mon PV HT</th><th>Mon relevé moy</th><th>Distribution moy HT</th><th>Min / Max</th>
     <th>Écart relevé</th><th>Relevés</th><th>Dernier relevé</th>
   </tr></thead><tbody>`;
 
@@ -554,7 +558,7 @@ function concListHtml(concurrents, showClassif){
     const nb = p.nb_releves>1 ? ` <span class="muted">×${p.nb_releves}</span>` : '';
     return `<li>${escH(p.libelle||p.ref||'?')}${classif}${mq} ${prix}${nb}</li>`;
   }).join('');
-  return `<div class="conc-block"><div class="conc-title">🆚 Produits concurrents relevés (${concurrents.length})</div><ul class="conc-list">${items}</ul></div>`;
+  return `<div class="conc-block"><div class="conc-title">🆚 Produits distribution relevés (${concurrents.length})</div><ul class="conc-list">${items}</ul></div>`;
 }
 
 // Gaps articles : rupture SECTEUR (pliable) → classification/dim (pliable) → article
@@ -574,8 +578,8 @@ function renderGapsByArticle(data){
 
   let html = `<div class="section">
     <div class="section-header">
-      <span class="section-title">🚫 Gaps articles — clients du secteur qui n'achètent pas l'article</span>
-      <span class="section-sub">${bySecteur.size} secteur(s)</span>
+      <span class="section-title">🚫 Gaps articles — clients de la catégorie client qui n'achètent pas l'article</span>
+      <span class="section-sub">${bySecteur.size} catégorie(s) client</span>
     </div>
     <div class="gaps-card">`;
   let si = 0;
@@ -639,7 +643,7 @@ function renderGapsByClient(data){
   let html = `<div class="section">
     <div class="section-header">
       <span class="section-title">👤 Gaps clients — articles manquants par client</span>
-      <span class="section-sub">${bySecteur.size} secteur(s)</span>
+      <span class="section-sub">${bySecteur.size} catégorie(s) client</span>
     </div>
     <div class="gaps-card">`;
   let si = 0;
@@ -684,7 +688,7 @@ function renderGapsByClient(data){
   sec.innerHTML = html;
 }
 
-// Pricing nouvelle hiérarchie : SECTEUR → CLIENT → ARTICLE (relevés)
+// Pricing hiérarchie : CATÉGORIE CLIENT → ARTICLE (code) → CLIENT (relevés)
 function renderPricing(data){
   const sec = qs('pricing-section');
   const list = data.pricingBySecteur || [];
@@ -692,54 +696,77 @@ function renderPricing(data){
   // message explicite (sinon elle "disparaît" et on croit à une fonctionnalité perdue).
   if (!list.length) {
     sec.innerHTML = `<div class="section"><div class="section-header">
-      <span class="section-title">💶 Comparatif prix concurrents — par secteur d'activité → client → article</span>
+      <span class="section-title">💶 Comparatif prix distribution — par catégorie client → article → client</span>
     </div><div style="padding:16px;text-align:center;color:var(--muted)">
-      Aucun relevé de prix concurrent pour ces filtres (secteur, dimension, famille, période).
+      Aucun relevé de prix distribution pour ces filtres (catégorie client, dimension, famille, période).
       Élargissez la période ou retirez un filtre (ex. une famille ou une valeur de dimension sans relevé).
     </div></div>`;
     return;
   }
   let html = `<div class="section">
     <div class="section-header">
-      <span class="section-title">💶 Comparatif prix concurrents — par secteur d'activité → client → article</span>
-      <span class="section-sub">${list.length} secteur(s) avec relevé(s)</span>
+      <span class="section-title">💶 Comparatif prix distribution — par catégorie client → article → client</span>
+      <span class="section-sub">${list.length} catégorie(s) client avec relevé(s)</span>
     </div>
     <div class="gaps-card">`;
   list.forEach((entry, si) => {
     const sid = `pri-sec-${si}`;
+    // Pivot client→article fourni par le serveur, ré-agrégé ici en article→client :
+    // on regroupe tous les relevés de la catégorie par article (art_id), chaque ligne
+    // portant désormais le client.
+    const artMap = new Map();
+    entry.clients.forEach(c => {
+      (c.articles || []).forEach(a => {
+        const k = a.art_id != null ? `id:${a.art_id}` : `code:${a.code||''}`;
+        if (!artMap.has(k)) artMap.set(k, { code: a.code, designation: a.designation, marque: a.marque, rows: [] });
+        artMap.get(k).rows.push({
+          nom: c.nom, cliCode: c.code, commercial: c.commercial,
+          prix_releve_ht: a.prix_releve_ht, prix_promo_ht: a.prix_promo_ht,
+          mon_pv_ht: a.mon_pv_ht, ecart_pct: a.ecart_pct,
+          marque_releve: a.marque_releve, match_type: a.match_type, date_releve: a.date_releve,
+        });
+      });
+    });
+    const articles = Array.from(artMap.values()).map(art => {
+      art.rows.sort((x, y) => (x.nom||'').localeCompare(y.nom||'', 'fr')
+                              || (y.date_releve||'').localeCompare(x.date_releve||''));
+      art.nbClients = new Set(art.rows.map(r => r.nom)).size;
+      return art;
+    }).sort((a, b) => (a.code||'').localeCompare(b.code||'', 'fr', { numeric: true }));
     html += `<div class="gaps-row">
       <div class="gaps-head" onclick="document.getElementById('${sid}').classList.toggle('open')">
         <span class="name">${escH(entry.secteur)}</span>
-        <span class="count">${entry.nb_clients} client(s) · ${entry.nb_releves} relevé(s)</span>
+        <span class="count">${articles.length} article(s) · ${entry.nb_releves} relevé(s)</span>
       </div>
       <div class="gaps-body" id="${sid}">`;
-    entry.clients.forEach((c, ci) => {
-      const cid = `pri-cli-${si}-${ci}`;
+    articles.forEach((art, ai) => {
+      const aid = `pri-art-${si}-${ai}`;
       html += `<div style="margin:6px 0;border-left:3px solid var(--blue);padding-left:8px">
-        <div onclick="document.getElementById('${cid}').classList.toggle('open')" style="cursor:pointer;display:flex;gap:8px;align-items:center;padding:4px 6px;background:rgba(33,150,243,.06)">
-          <span style="font-weight:600">${escH(c.nom)}</span>
-          <span class="muted" style="font-size:.7rem">${escH(c.code||'')} · ${escH(c.commercial||'')}</span>
-          <span class="muted" style="margin-left:auto;font-size:.72rem">${c.nb_articles} article(s) · ${c.nb_releves} relevé(s)</span>
+        <div onclick="document.getElementById('${aid}').classList.toggle('open')" style="cursor:pointer;display:flex;gap:8px;align-items:center;padding:4px 6px;background:rgba(33,150,243,.06)">
+          <span style="font-weight:600">${escH(art.code||'')}</span>
+          <span class="muted" style="font-size:.7rem">${escH(art.designation||'')}${art.marque?' · '+escH(art.marque):''}</span>
+          <span class="muted" style="margin-left:auto;font-size:.72rem">${art.nbClients} client(s) · ${art.rows.length} relevé(s)</span>
         </div>
-        <div class="gaps-body" id="${cid}" style="padding:4px 8px 8px 0">
+        <div class="gaps-body" id="${aid}" style="padding:4px 8px 8px 0">
           <table class="pricing-table"><thead><tr>
-            <th>Code</th><th>Article</th><th>Date</th>
+            <th>Client</th><th>Code client</th><th>Commercial</th><th>Date</th>
             <th>Prix relevé HT</th><th>Promo HT</th><th>Mon PV HT</th><th>Écart %</th>
             <th>Marque relevée</th><th>Match</th>
           </tr></thead><tbody>${
-            c.articles.map(a => {
-              const ecartCls = a.ecart_pct == null ? '' :
-                (a.ecart_pct >= 5 ? 'val-pct bad' : (a.ecart_pct <= -2 ? 'val-pct good' : 'val-pct avg'));
+            art.rows.map(r => {
+              const ecartCls = r.ecart_pct == null ? '' :
+                (r.ecart_pct >= 5 ? 'val-pct bad' : (r.ecart_pct <= -2 ? 'val-pct good' : 'val-pct avg'));
               return `<tr>
-                <td>${escH(a.code||'')}</td>
-                <td class="muted">${escH(a.designation||'')}</td>
-                <td class="muted">${escH(a.date_releve||'')}</td>
-                <td>${fmtEur(a.prix_releve_ht,2)}</td>
-                <td class="muted">${fmtEur(a.prix_promo_ht,2)}</td>
-                <td>${a.mon_pv_ht==null?'—':fmtEur(a.mon_pv_ht,2)}</td>
-                <td>${a.ecart_pct==null?'—':`<span class="${ecartCls}">${fmtPct(a.ecart_pct)}</span>`}</td>
-                <td class="muted">${escH(a.marque_releve||'')}</td>
-                <td class="muted">${escH(a.match_type||'')}</td>
+                <td>${escH(r.nom||'')}</td>
+                <td class="muted">${escH(r.cliCode||'')}</td>
+                <td class="muted">${escH(r.commercial||'')}</td>
+                <td class="muted">${escH(r.date_releve||'')}</td>
+                <td>${fmtEur(r.prix_releve_ht,2)}</td>
+                <td class="muted">${fmtEur(r.prix_promo_ht,2)}</td>
+                <td>${r.mon_pv_ht==null?'—':fmtEur(r.mon_pv_ht,2)}</td>
+                <td>${r.ecart_pct==null?'—':`<span class="${ecartCls}">${fmtPct(r.ecart_pct)}</span>`}</td>
+                <td class="muted">${escH(r.marque_releve||'')}</td>
+                <td class="muted">${escH(r.match_type||'')}</td>
               </tr>`;
             }).join('')
           }</tbody></table>
@@ -763,7 +790,7 @@ function renderNonRattaches(data){
   const totRel  = list.reduce((s,e)=>s+(e.nb_releves||0),0);
   let html = `<div class="section">
     <div class="section-header">
-      <span class="section-title">🏷️ Produits concurrents non rattachés — par secteur d'activité → client</span>
+      <span class="section-title">🏷️ Produits distribution non rattachés — par catégorie client → client</span>
       <span class="section-sub">${totProd} produit(s) · ${totRel} relevé(s) · sans correspondance article</span>
     </div>
     <div class="gaps-card">`;
@@ -785,7 +812,7 @@ function renderNonRattaches(data){
         </div>
         <div class="gaps-body" id="${cid}" style="padding:4px 8px 8px 0">
           <table class="pricing-table"><thead><tr>
-            <th>Réf</th><th>Produit concurrent</th><th>Marque</th><th>Date</th>
+            <th>Réf</th><th>Produit distribution</th><th>Marque</th><th>Date</th>
             <th>Prix relevé HT</th><th>Promo HT</th><th>Relevés</th>
           </tr></thead><tbody>${
             c.produits.map(p => `<tr>
@@ -816,8 +843,8 @@ function renderChart(data){
   const dimL = dimLbl(data.dim);
   host.innerHTML = `<div class="section">
     <div class="section-header">
-      <span class="section-title">📈 Prix relevé moyen HT par secteur × ${dimL.toLowerCase()}</span>
-      <span class="section-sub">${ch.secteurs.length} secteur(s) × ${ch.series.length} ${dimL.toLowerCase()}(s)</span>
+      <span class="section-title">📈 Prix relevé moyen HT par catégorie client × ${dimL.toLowerCase()}</span>
+      <span class="section-sub">${ch.secteurs.length} catégorie(s) client × ${ch.series.length} ${dimL.toLowerCase()}(s)</span>
     </div>
     <div style="padding:14px;height:340px;position:relative"><canvas id="price-chart"></canvas></div>
   </div>`;
@@ -825,10 +852,15 @@ function renderChart(data){
   const datasets = ch.series.map((s, i) => ({
     label: s.dim_value,
     data: s.prixMoyHt,
+    // min/max conservés sur le dataset pour enrichir le tooltip au survol.
+    prixMinHt: s.prixMinHt || [],
+    prixMaxHt: s.prixMaxHt || [],
     backgroundColor: palette[i % palette.length],
     borderColor: palette[i % palette.length],
     borderWidth: 1,
   }));
+  const fmtEur = v => v == null ? '—'
+    : new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(v) + ' €';
   if (_priceChart) { _priceChart.destroy(); _priceChart = null; }
   const ctx = document.getElementById('price-chart');
   if (!ctx) return;
@@ -839,13 +871,95 @@ function renderChart(data){
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { labels: { color: '#cbd5e1', font: { size: 11 } } },
-        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y == null ? '—' : new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(c.parsed.y) + ' €'}` } },
+        tooltip: { callbacks: { label: c => {
+          const lines = [`${c.dataset.label} — moyen : ${fmtEur(c.parsed.y)}`];
+          const mn = c.dataset.prixMinHt?.[c.dataIndex];
+          const mx = c.dataset.prixMaxHt?.[c.dataIndex];
+          if (mn != null && mx != null) { lines.push(`min : ${fmtEur(mn)}`, `max : ${fmtEur(mx)}`); }
+          return lines;
+        } } },
       },
       scales: {
         x: { ticks: { color: '#8892a4' }, grid: { color: '#2a2d3e' } },
         y: { ticks: { color: '#8892a4', callback: v => new Intl.NumberFormat('fr-FR').format(v) + ' €' }, grid: { color: '#2a2d3e' } },
       },
     },
+  });
+}
+
+// ── Graphique mensuel par catégorie client : un combo par catégorie ──────
+// Barres = cartons (période N et N-1), courbes = PV HT moyen (N et N-1).
+// X = mois de la période ; double axe Y (cartons à gauche, PV HT à droite).
+let _monthlyCharts = [];
+function renderMonthly(data){
+  const host = qs('monthly-section');
+  const mc = data.chartMonthly || { months: [], categories: [] };
+  _monthlyCharts.forEach(c => { try { c.destroy(); } catch(e){} });
+  _monthlyCharts = [];
+  if (!mc.months.length || !mc.categories.length) { host.innerHTML = ''; return; }
+  const pN = mc.periode || {}, pN1 = mc.periodeN1 || {};
+  let html = `<div class="section">
+    <div class="section-header">
+      <span class="section-title">📊 Volume vs prix relevé mensuel par catégorie client — comparatif N-1</span>
+      <span class="section-sub">${mc.categories.length} catégorie(s) client · ${mc.months.length} mois · ${pN.date_debut}→${pN.date_fin} vs N-1 ${pN1.date_debut}→${pN1.date_fin} · barres = cartons, courbes = prix relevé HT (promo inclus, 🔻 = mois en promo)</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:14px;padding:14px">`;
+  mc.categories.forEach((cat, i) => {
+    html += `<div style="background:#161824;border:1px solid #2a2d3e;border-radius:8px;padding:10px">
+      <div style="color:#cbd5e1;font-weight:600;font-size:.85rem;margin-bottom:6px">${escH(cat.secteur)}</div>
+      <div style="height:260px;position:relative"><canvas id="mc-${i}"></canvas></div>
+    </div>`;
+  });
+  html += `</div></div>`;
+  host.innerHTML = html;
+
+  const nfCart = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+  const nfEur  = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  mc.categories.forEach((cat, i) => {
+    const ctx = document.getElementById(`mc-${i}`);
+    if (!ctx) return;
+    // Marquage des mois en promo sur la courbe période : point rouge agrandi.
+    const promo = cat.promoN || [];
+    const prixPtR  = mc.months.map((_, k) => promo[k] ? 5 : 2);
+    const prixPtBg = mc.months.map((_, k) => promo[k] ? '#F44336' : '#FF9800');
+    const ch = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: mc.months,
+        datasets: [
+          { type:'bar',  label:'Cartons (période)',  data:cat.cartonsN,  backgroundColor:'#2196F3', yAxisID:'vol',  order:3 },
+          { type:'bar',  label:'Cartons (N-1)',      data:cat.cartonsN1, backgroundColor:'#5c6b8a', yAxisID:'vol',  order:3 },
+          { type:'line', label:'Prix relevé HT (période)', data:cat.prixN,  borderColor:'#FF9800', backgroundColor:'#FF9800',
+            yAxisID:'prix', tension:.25, spanGaps:true, borderWidth:2, pointRadius:prixPtR, pointBackgroundColor:prixPtBg, order:1 },
+          { type:'line', label:'Prix relevé HT (N-1)',     data:cat.prixN1, borderColor:'#bdbdbd', backgroundColor:'#bdbdbd',
+            yAxisID:'prix', tension:.25, spanGaps:true, borderWidth:2, borderDash:[5,4], pointRadius:2, order:2 },
+        ],
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ labels:{ color:'#cbd5e1', font:{size:10}, boxWidth:12 } },
+          tooltip:{ callbacks:{ label: c => {
+            const v = c.parsed.y;
+            if (v == null) return `${c.dataset.label} : —`;
+            if (c.dataset.yAxisID === 'prix') {
+              const isPromo = c.datasetIndex === 2 && promo[c.dataIndex];
+              return `${c.dataset.label} : ${nfEur.format(v)} €${isPromo ? ' 🔻 promo' : ''}`;
+            }
+            return `${c.dataset.label} : ${nfCart.format(v)}`;
+          } } },
+        },
+        scales:{
+          x:    { ticks:{ color:'#8892a4', font:{size:10} }, grid:{ color:'#2a2d3e' } },
+          vol:  { type:'linear', position:'left',  title:{ display:true, text:'Cartons', color:'#8892a4' },
+                  ticks:{ color:'#8892a4', callback:v => nfCart.format(v) }, grid:{ color:'#2a2d3e' }, beginAtZero:true },
+          prix: { type:'linear', position:'right', title:{ display:true, text:'Prix relevé HT €', color:'#8892a4' },
+                  ticks:{ color:'#8892a4', callback:v => nfCart.format(v) + ' €' }, grid:{ drawOnChartArea:false } },
+        },
+      },
+    });
+    _monthlyCharts.push(ch);
   });
 }
 
@@ -893,6 +1007,7 @@ async function load(){
     updateDbBadge(data.db);
     renderKpis(data);
     renderChart(data);
+    renderMonthly(data);
     renderTree(data);
     renderGapsByArticle(data);
     renderGapsByClient(data);
