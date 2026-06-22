@@ -87,6 +87,11 @@
     .lvl-1 td.lbl{padding-left:10px;font-weight:700;color:var(--text)}
     .lvl-2 td.lbl{padding-left:30px;font-weight:600;color:var(--text)}
     .lvl-3 td.lbl{padding-left:50px;color:var(--muted)}
+    .art-row{cursor:pointer}
+    .art-row:hover{background:rgba(33,150,243,.10)}
+    .art-row:hover td.lbl{color:var(--text)}
+    .art-chart-ico{display:inline-block;margin-right:4px;font-size:.78rem;opacity:.55}
+    .art-row:hover .art-chart-ico{opacity:1}
     .lvl-1 td{border-top:2px solid var(--border)}
     .toggler{display:inline-block;width:14px;text-align:center;cursor:pointer;
       color:var(--muted);user-select:none}
@@ -121,6 +126,17 @@
     .pricing-table td:first-child,.pricing-table th:first-child{text-align:left}
     .skeleton{animation:pulse 1.4s ease-in-out infinite;background:var(--border);border-radius:4px;display:inline-block;height:1em;width:60px}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+    .art-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);
+      align-items:center;justify-content:center;padding:20px}
+    .art-modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+      width:min(1000px,96vw);max-height:92vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.4)}
+    .art-modal-head{display:flex;align-items:flex-start;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)}
+    .art-modal-title{font-weight:700;font-size:.95rem;color:var(--text)}
+    .art-modal-sub{color:var(--muted);font-size:.74rem;margin-top:3px}
+    .art-modal-close{margin-left:auto;background:transparent;border:none;color:var(--muted);
+      font-size:1.1rem;cursor:pointer;line-height:1;padding:4px 8px;border-radius:6px}
+    .art-modal-close:hover{background:var(--surface2);color:var(--text)}
+    .art-modal-body{padding:16px 18px;overflow:auto}
   </style>
   <script>if(new URLSearchParams(location.search).get('embed')==='1')document.documentElement.classList.add('embedded');</script>
 </head>
@@ -173,6 +189,20 @@
   <div id="gaps-client-section"></div>
   <div id="pricing-section"></div>
   <div id="unmatched-section"></div>
+</div>
+
+<!-- Modale : graphe mensuel volume/prix d'un article vs sa catégorie client (clic tree) -->
+<div id="art-monthly-overlay" class="art-overlay" onclick="if(event.target===this)closeArticleMonthly()">
+  <div class="art-modal">
+    <div class="art-modal-head">
+      <div>
+        <div id="art-monthly-title" class="art-modal-title"></div>
+        <div id="art-monthly-sub" class="art-modal-sub"></div>
+      </div>
+      <button type="button" class="art-modal-close" onclick="closeArticleMonthly()" title="Fermer">✕</button>
+    </div>
+    <div id="art-monthly-body" class="art-modal-body"></div>
+  </div>
 </div>
 
 <script>
@@ -468,10 +498,14 @@ function pctClass(p){
   return 'bad';
 }
 
+// Métadonnées des lignes article du tree (pour le clic → graphe mensuel).
+// Reconstruit à chaque renderTree ; indexé par data-artidx sur la ligne lvl-3.
+let _treeArticles = [];
 function renderTree(data){
   const tree = data.treeBySecteur || [];
   const sec = qs('tree-section');
   const dimL = dimLbl(data.dim);
+  _treeArticles = [];
   if (!tree.length) {
     sec.innerHTML = `<div class="section-header"><span class="section-title">📂 Hiérarchie catégorie client → ${dimL} → article</span></div>
       <div style="padding:20px;text-align:center;color:var(--muted)">Aucune donnée sur la période.</div>`;
@@ -511,7 +545,10 @@ function renderTree(data){
           (a.ecart_pct >= 5 ? 'val-pct bad' : (a.ecart_pct <= -2 ? 'val-pct good' : 'val-pct avg'));
         const minMax = (a.prix_concurrent_min_ht !== null && a.prix_concurrent_max_ht !== null && a.prix_concurrent_min_ht !== undefined)
           ? `${fmtEur(a.prix_concurrent_min_ht,2)} / ${fmtEur(a.prix_concurrent_max_ht,2)}` : '—';
-        html += `<tr class="lvl-3" data-parent="${mid}" style="display:none"><td class="lbl">${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></td>
+        // Ligne article cliquable → graphe mensuel volume/prix vs catégorie (N-1).
+        const artIdx = _treeArticles.length;
+        _treeArticles.push({ art_id: a.art_id, secteur: s.label, code: a.code, designation: a.designation || '' });
+        html += `<tr class="lvl-3 art-row" data-parent="${mid}" data-artidx="${artIdx}" style="display:none" title="Voir le graphe mensuel volume/prix vs catégorie"><td class="lbl"><span class="art-chart-ico">📈</span> ${escH(a.code)} — <span class="muted">${escH(a.designation||'')}</span></td>
           <td></td>
           <td>${fmt(a.nbBuyers)}</td>
           <td>${fmt(a.cartons)}</td>
@@ -549,6 +586,120 @@ function renderTree(data){
         }
       });
     };
+  });
+
+  // Clic sur une ligne article → modale graphe mensuel (volume + prix vs catégorie).
+  sec.querySelectorAll('tr.art-row').forEach(tr => {
+    tr.onclick = () => {
+      const meta = _treeArticles[parseInt(tr.dataset.artidx)];
+      if (meta && meta.art_id) openArticleMonthly(meta);
+    };
+  });
+}
+
+// ── Modale : graphe mensuel volume vs prix relevé d'un article, comparé à la
+// moyenne de sa catégorie client, comparatif N-1. Données via /api/prix/article-monthly.
+let _artMonthlyChart = null;
+function articleMonthlyParams(meta){
+  const params = new URLSearchParams();
+  params.set('artid', meta.art_id);
+  if (meta.secteur) params.set('secteur', meta.secteur);
+  const d0 = qs('sel-date-debut').value, d1 = qs('sel-date-fin').value;
+  if (d0) params.set('date_debut', d0);
+  if (d1) params.set('date_fin', d1);
+  if (SELECTED_REPS.size) params.set('repid', Array.from(SELECTED_REPS).join(','));
+  const cli = qs('sel-cliactif').value; if (cli) params.set('cliactif', cli);
+  const tva = qs('sel-tva').value;      if (tva) params.set('tva', tva);
+  applyDbParam(params);
+  return params;
+}
+async function openArticleMonthly(meta){
+  const overlay = qs('art-monthly-overlay');
+  const titleEl = qs('art-monthly-title');
+  const subEl   = qs('art-monthly-sub');
+  const bodyEl  = qs('art-monthly-body');
+  titleEl.textContent = `📈 ${meta.code} — ${meta.designation || ''}`;
+  subEl.textContent = `Catégorie client : ${meta.secteur || '—'} · chargement…`;
+  bodyEl.innerHTML = '<div style="height:380px;display:flex;align-items:center;justify-content:center;color:var(--muted)">Chargement…</div>';
+  overlay.style.display = 'flex';
+  if (_artMonthlyChart) { try { _artMonthlyChart.destroy(); } catch(e){} _artMonthlyChart = null; }
+  try {
+    const d = await fetch(`${API}/article-monthly?${articleMonthlyParams(meta)}`).then(r => r.json());
+    if (d.error) throw new Error(d.error);
+    renderArticleMonthlyChart(d, meta);
+  } catch (e) {
+    subEl.textContent = `Catégorie client : ${meta.secteur || '—'}`;
+    bodyEl.innerHTML = `<div style="padding:30px;text-align:center;color:#e53935">Erreur : ${escH(e.message)}</div>`;
+  }
+}
+function closeArticleMonthly(){
+  if (_artMonthlyChart) { try { _artMonthlyChart.destroy(); } catch(e){} _artMonthlyChart = null; }
+  qs('art-monthly-overlay').style.display = 'none';
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && qs('art-monthly-overlay').style.display === 'flex') closeArticleMonthly();
+});
+function renderArticleMonthlyChart(d, meta){
+  const subEl  = qs('art-monthly-sub');
+  const bodyEl = qs('art-monthly-body');
+  const art = d.article || {}, cat = d.categorie || {};
+  const months = d.months || [];
+  const pN = d.periode || {}, pN1 = d.periodeN1 || {};
+  if (!months.length) {
+    subEl.textContent = `Catégorie client : ${meta.secteur || '—'}`;
+    bodyEl.innerHTML = '<div style="padding:30px;text-align:center;color:var(--muted)">Aucune donnée sur la période.</div>';
+    return;
+  }
+  subEl.textContent = `Catégorie client : ${meta.secteur || '—'} · ${months.length} mois · ${pN.date_debut}→${pN.date_fin} vs N-1 ${pN1.date_debut}→${pN1.date_fin} · barres = cartons (cat. = moyenne/article), courbes = prix relevé HT (🔻 = mois en promo)`;
+  bodyEl.innerHTML = '<div style="height:420px;position:relative"><canvas id="art-monthly-canvas"></canvas></div>';
+  const ctx = document.getElementById('art-monthly-canvas');
+  const nfCart = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+  const nfEur  = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const promoArt = art.promoN || [], promoCat = cat.promoN || [];
+  const artPtR  = months.map((_, k) => promoArt[k] ? 5 : 2);
+  const artPtBg = months.map((_, k) => promoArt[k] ? '#F44336' : '#FF9800');
+  _artMonthlyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: [
+        { type:'bar', label:'Cartons article (période)', data:art.cartonsN,  backgroundColor:'#2196F3', yAxisID:'vol', order:3 },
+        { type:'bar', label:'Cartons article (N-1)',      data:art.cartonsN1, backgroundColor:'#90caf9', yAxisID:'vol', order:3 },
+        { type:'bar', label:'Cartons cat. moy/article (période)', data:cat.cartonsN,  backgroundColor:'#43A047', yAxisID:'vol', order:3 },
+        { type:'bar', label:'Cartons cat. moy/article (N-1)',     data:cat.cartonsN1, backgroundColor:'#a5d6a7', yAxisID:'vol', order:3 },
+        { type:'line', label:'Prix relevé HT article (période)', data:art.prixN, borderColor:'#FF9800', backgroundColor:'#FF9800',
+          yAxisID:'prix', tension:.25, spanGaps:true, borderWidth:2.5, pointRadius:artPtR, pointBackgroundColor:artPtBg, order:1 },
+        { type:'line', label:'Prix relevé HT article (N-1)', data:art.prixN1, borderColor:'#FFB74D', backgroundColor:'#FFB74D',
+          yAxisID:'prix', tension:.25, spanGaps:true, borderWidth:2, borderDash:[5,4], pointRadius:2, order:2 },
+        { type:'line', label:'Prix relevé HT catégorie (période)', data:cat.prixN, borderColor:'#2E7D32', backgroundColor:'#2E7D32',
+          yAxisID:'prix', tension:.25, spanGaps:true, borderWidth:2.5, pointRadius:2, order:1 },
+        { type:'line', label:'Prix relevé HT catégorie (N-1)', data:cat.prixN1, borderColor:'#81c784', backgroundColor:'#81c784',
+          yAxisID:'prix', tension:.25, spanGaps:true, borderWidth:2, borderDash:[5,4], pointRadius:2, order:2 },
+      ],
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ labels:{ color:cssVar('--text'), font:{size:10}, boxWidth:12 } },
+        tooltip:{ callbacks:{ label: c => {
+          const v = c.parsed.y;
+          if (v == null) return `${c.dataset.label} : —`;
+          if (c.dataset.yAxisID === 'prix') {
+            const isPromo = (c.datasetIndex === 4 && promoArt[c.dataIndex]) || (c.datasetIndex === 6 && promoCat[c.dataIndex]);
+            return `${c.dataset.label} : ${nfEur.format(v)} €${isPromo ? ' 🔻 promo' : ''}`;
+          }
+          return `${c.dataset.label} : ${nfCart.format(v)}`;
+        } } },
+      },
+      scales:{
+        x:    { ticks:{ color:cssVar('--muted'), font:{size:10} }, grid:{ color:cssVar('--border') } },
+        vol:  { type:'linear', position:'left',  title:{ display:true, text:'Cartons', color:cssVar('--muted') },
+                ticks:{ color:cssVar('--muted'), callback:v => nfCart.format(v) }, grid:{ color:cssVar('--border') }, beginAtZero:true },
+        prix: { type:'linear', position:'right', title:{ display:true, text:'Prix relevé HT €', color:cssVar('--muted') },
+                ticks:{ color:cssVar('--muted'), callback:v => nfCart.format(v) + ' €' }, grid:{ drawOnChartArea:false } },
+      },
+    },
   });
 }
 

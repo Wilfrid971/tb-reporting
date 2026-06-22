@@ -1182,6 +1182,179 @@ router.get('/detail', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET /api/prix/article-monthly — drill-down clic article (tree) : graphe mensuel
+// Volume vs prix relevé, comparatif N-1, en superposant DEUX scopes :
+//   • article  : cet article au sein de sa catégorie client (secteur cliqué)
+//   • catégorie: la catégorie client entière (secteur) → prix relevé HT moyen +
+//                cartons MOYENS par article (total ÷ nb articles vendus), pour
+//                rester à une échelle comparable à un article unique.
+// Périmètre client = secteur cliqué + cliactif + commercial (repid) de l'écran ;
+// la catégorie n'est PAS filtrée par marque/famille (benchmark "toute la catégorie").
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/article-monthly', async (req, res) => {
+  try {
+    const p       = resolvePeriod(req.query);
+    const tva     = parseTva(req.query);
+    const tvaCoef = 1 + tva / 100;
+    const artid   = parseInt(req.query.artid);
+    if (!artid) return res.status(400).json({ error: 'artid requis' });
+    const secteur = String(req.query.secteur || '').trim();
+    const repids  = parseCsv(req.query.repid, 50).map(x => parseInt(x)).filter(x => !isNaN(x));
+    const cliRaw  = String(req.query.cliactif || '').trim();
+    // period/all → pas de filtre TIRISACTIF ; N → inactifs ; défaut → actifs
+    const cliactif = cliRaw === 'N' ? 'N' : ((cliRaw === 'all' || cliRaw === 'period') ? '' : 'O');
+
+    // Fenêtre N-1 = même plage décalée d'un an (clamp 29/02 → 28/02).
+    const shiftYears = (dateStr, n) => {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const year = y + n;
+      const lastDay = new Date(year, m, 0).getDate();
+      const day = Math.min(d, lastDay);
+      const pad = (x) => String(x).padStart(2, '0');
+      return `${year}-${pad(m)}-${pad(day)}`;
+    };
+    const dN1 = shiftYears(p.date_debut, -1);
+    const fN1 = shiftYears(p.date_fin,   -1);
+
+    const pool = await resolvePrixPool(req);
+
+    const repInList = repids.map((_, i) => `@repid${i}`).join(',');
+    const secWhereTc = secteur ? `AND ISNULL(RTRIM(tc.TIRACTIVITE),'Non défini') = @secteur` : '';
+    const cliWhereTc = cliactif ? `AND tc.TIRISACTIF='${cliactif}'` : '';
+    const repWhereTc = repids.length ? `AND tc.REPID IN (${repInList})` : '';
+    const secWhereT  = secteur ? `AND ISNULL(RTRIM(t.TIRACTIVITE),'Non défini') = @secteur` : '';
+    const cliWhereT  = cliactif ? `AND t.TIRISACTIF='${cliactif}'` : '';
+    const repWhereT  = repids.length ? `AND t.REPID IN (${repInList})` : '';
+
+    const bind = (r) => {
+      r.input('date_debut', sql.VarChar(10), p.date_debut);
+      r.input('date_fin',   sql.VarChar(10), p.date_fin);
+      r.input('dN1',        sql.VarChar(10), dN1);
+      r.input('fN1',        sql.VarChar(10), fN1);
+      r.input('tva_coef',   sql.Float,       tvaCoef);
+      r.input('artid',      sql.Int,         artid);
+      if (secteur) r.input('secteur', sql.NVarChar(255), secteur);
+      repids.forEach((id, i) => r.input(`repid${i}`, sql.Int, id));
+    };
+
+    // VOLUME (cartons) par mois, sur N ET N-1. cat_cartons = total catégorie,
+    // cat_nbart = nb d'articles distincts vendus (dénominateur de la moyenne),
+    // art_cartons = volume de l'article seul.
+    const rVol = pool.request(); bind(rVol);
+    const qVol = await rVol.query(`
+      SELECT
+        YEAR(pv.PCVDATEEFFET)  AS yr,
+        MONTH(pv.PCVDATEEFFET) AS mo,
+        SUM(CAST(pl.PLVQTE AS float) / CASE WHEN ISNULL(pl.PLVD3,0)=0 THEN 1 ELSE pl.PLVD3 END
+            * pn.PINSENSSTATISTIQUE)                                   AS cat_cartons,
+        COUNT(DISTINCT pl.ARTID)                                       AS cat_nbart,
+        SUM(CASE WHEN pl.ARTID=@artid
+                 THEN CAST(pl.PLVQTE AS float) / CASE WHEN ISNULL(pl.PLVD3,0)=0 THEN 1 ELSE pl.PLVD3 END
+                      * pn.PINSENSSTATISTIQUE ELSE 0 END)              AS art_cartons
+      FROM PIECEVENTELIGNES pl WITH (NOLOCK)
+      JOIN PIECEVENTES pv WITH (NOLOCK)   ON pv.PCVID=pl.PCVID
+      JOIN PIECE_NATURE pn WITH (NOLOCK)  ON pn.PINID=pv.PINID
+      JOIN ARTICLES a WITH (NOLOCK)       ON a.ARTID=pl.ARTID
+      JOIN TIERS tc WITH (NOLOCK)         ON tc.TIRID=pv.TIRID
+      WHERE pn.PITCODE='F' AND pn.PINSENSSTATISTIQUE<>0 AND a.ARTISSTATISTIQUE='O'
+        AND tc.TIRTYPE='C' ${secWhereTc} ${cliWhereTc} ${repWhereTc}
+        AND ((pv.PCVDATEEFFET>=@date_debut AND pv.PCVDATEEFFET<DATEADD(day,1,@date_fin))
+          OR (pv.PCVDATEEFFET>=@dN1 AND pv.PCVDATEEFFET<DATEADD(day,1,@fN1)))
+      GROUP BY YEAR(pv.PCVDATEEFFET), MONTH(pv.PCVDATEEFFET)
+    `);
+
+    // PRIX relevé HT moyen par mois, N ET N-1. Prix effectif = promo si >0 sinon
+    // relevé, ÷ tva_coef. cat_prix = moyenne catégorie ; art_prix = moyenne de
+    // l'article seul (AVG(CASE…) ignore les NULL → ne porte que sur ses relevés).
+    const rPrix = pool.request(); bind(rPrix);
+    const qPrix = await rPrix.query(`
+      WITH releve_base AS (
+        SELECT r.TIRID, r.PRIX_RELEVE, r.PRIX_PROMO, r.DATE_RELEVE,
+               COALESCE(a_direct.ARTID, ac.ARTID) AS resolved_ARTID
+        FROM EXT_RELEVE_PRIX r WITH (NOLOCK)
+        LEFT JOIN ARTICLES a_direct WITH (NOLOCK)
+               ON a_direct.ARTCODE = r.REFERENCE_ARTICLE AND a_direct.ARTISSTATISTIQUE='O'
+        LEFT JOIN EXT_Produits p WITH (NOLOCK)         ON p.Code_Produit = r.REFERENCE_ARTICLE
+        LEFT JOIN EXT_ART_CONCURRENTS ac WITH (NOLOCK) ON ac.IDProduit = p.IDProduit
+        WHERE r.STATUT IN ('envoyee','validee') AND r.PRIX_RELEVE IS NOT NULL
+          AND ((r.DATE_RELEVE>=@date_debut AND r.DATE_RELEVE<DATEADD(day,1,@date_fin))
+            OR (r.DATE_RELEVE>=@dN1 AND r.DATE_RELEVE<DATEADD(day,1,@fN1)))
+      )
+      SELECT
+        YEAR(rb.DATE_RELEVE)  AS yr,
+        MONTH(rb.DATE_RELEVE) AS mo,
+        AVG(COALESCE(NULLIF(CAST(rb.PRIX_PROMO AS float),0), CAST(rb.PRIX_RELEVE AS float)) / @tva_coef) AS cat_prix,
+        AVG(CASE WHEN rb.resolved_ARTID=@artid
+                 THEN COALESCE(NULLIF(CAST(rb.PRIX_PROMO AS float),0), CAST(rb.PRIX_RELEVE AS float)) / @tva_coef END) AS art_prix,
+        SUM(CASE WHEN ISNULL(CAST(rb.PRIX_PROMO AS float),0)>0 THEN 1 ELSE 0 END) AS cat_nbpromo,
+        SUM(CASE WHEN rb.resolved_ARTID=@artid AND ISNULL(CAST(rb.PRIX_PROMO AS float),0)>0 THEN 1 ELSE 0 END) AS art_nbpromo
+      FROM releve_base rb
+      JOIN ARTICLES a WITH (NOLOCK) ON a.ARTID = rb.resolved_ARTID
+      LEFT JOIN TIERS t WITH (NOLOCK) ON t.TIRID = rb.TIRID
+      WHERE rb.resolved_ARTID IS NOT NULL ${secWhereT} ${cliWhereT} ${repWhereT}
+      GROUP BY YEAR(rb.DATE_RELEVE), MONTH(rb.DATE_RELEVE)
+    `);
+
+    // Mois de la période N ; le mois N-1 d'un (y,m) est exactement (y-1,m).
+    const FR_MONTHS = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+    const periodMonths = [];
+    {
+      const [y0, m0] = p.date_debut.split('-').map(Number);
+      const [y1, m1] = p.date_fin.split('-').map(Number);
+      let yy = y0, mm = m0;
+      while ((yy < y1 || (yy === y1 && mm <= m1)) && periodMonths.length < 120) {
+        periodMonths.push({ y: yy, m: mm, label: `${FR_MONTHS[mm - 1]} ${yy}` });
+        mm++; if (mm > 12) { mm = 1; yy++; }
+      }
+    }
+
+    const volAcc = new Map();   // `${yr}-${mo}` → { cat, nbart, art }
+    qVol.recordset.forEach(row => volAcc.set(`${row.yr}-${row.mo}`, {
+      cat:   parseFloat(row.cat_cartons) || 0,
+      nbart: parseInt(row.cat_nbart) || 0,
+      art:   parseFloat(row.art_cartons) || 0,
+    }));
+    const prixAcc = new Map();  // `${yr}-${mo}` → { catPrix, artPrix, catPromo, artPromo }
+    qPrix.recordset.forEach(row => prixAcc.set(`${row.yr}-${row.mo}`, {
+      catPrix:  row.cat_prix != null ? parseFloat(row.cat_prix) : null,
+      artPrix:  row.art_prix != null ? parseFloat(row.art_prix) : null,
+      catPromo: parseInt(row.cat_nbpromo) || 0,
+      artPromo: parseInt(row.art_nbpromo) || 0,
+    }));
+
+    const vol  = (y, m) => volAcc.get(`${y}-${m}`) || null;
+    const prix = (y, m) => prixAcc.get(`${y}-${m}`) || null;
+    const catMoy = (slot) => (slot && slot.nbart > 0) ? slot.cat / slot.nbart : null;
+
+    const article = {
+      cartonsN:  periodMonths.map(pm => { const v = vol(pm.y,     pm.m); return v ? v.art : null; }),
+      cartonsN1: periodMonths.map(pm => { const v = vol(pm.y - 1, pm.m); return v ? v.art : null; }),
+      prixN:     periodMonths.map(pm => { const c = prix(pm.y,     pm.m); return c ? c.artPrix : null; }),
+      prixN1:    periodMonths.map(pm => { const c = prix(pm.y - 1, pm.m); return c ? c.artPrix : null; }),
+      promoN:    periodMonths.map(pm => { const c = prix(pm.y,     pm.m); return !!(c && c.artPromo > 0); }),
+    };
+    const categorie = {
+      cartonsN:  periodMonths.map(pm => catMoy(vol(pm.y,     pm.m))),
+      cartonsN1: periodMonths.map(pm => catMoy(vol(pm.y - 1, pm.m))),
+      prixN:     periodMonths.map(pm => { const c = prix(pm.y,     pm.m); return c ? c.catPrix : null; }),
+      prixN1:    periodMonths.map(pm => { const c = prix(pm.y - 1, pm.m); return c ? c.catPrix : null; }),
+      promoN:    periodMonths.map(pm => { const c = prix(pm.y,     pm.m); return !!(c && c.catPromo > 0); }),
+    };
+
+    res.json({
+      artid, secteur, tva,
+      months: periodMonths.map(pm => pm.label),
+      article, categorie,
+      periode:   { date_debut: p.date_debut, date_fin: p.date_fin },
+      periodeN1: { date_debut: dN1, date_fin: fN1 },
+    });
+  } catch (err) {
+    console.error('[PRIX:article-monthly]', err.message, err.stack);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers PDF + builders Excel/HTML
 // ─────────────────────────────────────────────────────────────────────────────
 
