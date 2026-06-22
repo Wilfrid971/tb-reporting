@@ -186,7 +186,22 @@ Ouvrir `http://<IP-serveur>:5000` dans un navigateur. Login admin doit fonctionn
 
 ### 2.8 Installation comme service Windows (démarrage auto)
 
-Après avoir validé le démarrage manuel, créer le service via **NSSM**.
+#### Méthode recommandée — script automatisé
+
+Le script **`install-service.cmd`** (livré dans le zip) fait tout, et il est **idempotent** (relançable pour reconfigurer). À lancer **en administrateur** depuis le dossier du projet :
+
+```bat
+install-service.cmd
+```
+
+Il télécharge `nssm.exe` si absent, arrête un éventuel `node` lancé à la main, crée/recrée le service `TBReporting` (démarrage **auto au boot**, **restart auto** si crash, **rotation des logs** à 10 Mo), puis le démarre et affiche son état.
+
+> ⚠️ Le script arrête **tous** les process `node` du serveur (`Stop-Process node -Force`). Sans risque sur un serveur dédié ; à savoir s'il héberge d'autres apps Node.
+> Le service tourne en **Local System** : parfait en **auth SQL** (`.env`). Un compte de service n'est requis qu'en `DB_TRUSTED_CONNECTION=true`.
+
+#### Méthode manuelle (alternative)
+
+Sinon, créer le service via l'UI **NSSM** :
 
 ```bat
 nssm install TBReporting
@@ -292,6 +307,22 @@ powershell Get-Content C:\TB_Reporting\logs\stdout.log -Wait -Tail 50
 ```
 
 ### Mettre à jour le code
+
+#### Méthode recommandée — script automatisé
+
+1. Extraire le nouveau zip **par-dessus** le dossier projet (écrase `server\`, `public\`, `config\`, scripts…).
+2. Lancer **en administrateur**, depuis le dossier projet :
+
+```bat
+update.cmd
+```
+
+`update.cmd` arrête le service, relance `npm install --production` **uniquement si les dépendances ont changé** (comparaison du hash SHA-256 de `package-lock.json` mémorisé dans `logs\.pkg-hash`, ou si `node_modules\` manque), puis redémarre le service et affiche son état. Si `npm install` échoue, le service **n'est pas redémarré** (arrêt en erreur, à corriger puis relancer).
+
+Après mise à jour, vider le cache navigateur côté postes : **Ctrl+F5**.
+
+#### Méthode manuelle (alternative)
+
 ```bat
 nssm stop TBReporting
 :: Remplacer les fichiers dans server\, public\, config\
