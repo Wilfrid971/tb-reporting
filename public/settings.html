@@ -582,7 +582,7 @@ function applyPreset(id) {
 }
 
 // ── Thèmes ────────────────────────────────────────────────────────────────────
-let activeTheme     = localStorage.getItem('tb_theme') || 'dark';
+let activeTheme     = (window.tbUserTheme && window.tbUserTheme()) || localStorage.getItem('tb_theme') || 'dark';
 let activeDateFormat = localStorage.getItem('tb_date_format') || 'DD/MM/YYYY';
 
 function renderThemes() {
@@ -636,9 +636,22 @@ async function saveApparence() {
   localStorage.setItem('tb_pr_default', prDefault);
   localStorage.setItem('tb_mg_default', mgDefault);
   try {
+    // Thème : enregistré PAR PROFIL (compte connecté) — n'impacte ni le réglage
+    // global ni les autres utilisateurs. On met aussi à jour tb_user/tb_theme local.
+    const rt = await fetch('/api/auth/theme', {method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name: activeTheme })});
+    if (rt.ok) {
+      const j = await rt.json().catch(() => ({}));
+      if (j.token) localStorage.setItem('tb_token', j.token);
+      try {
+        const u = JSON.parse(localStorage.getItem('tb_user') || 'null');
+        if (u) { u.theme = activeTheme; localStorage.setItem('tb_user', JSON.stringify(u)); }
+      } catch(e) {}
+      localStorage.setItem('tb_theme', activeTheme);
+    }
+    // Réglages applicatifs globaux (format date, calcul, périodes) — inchangés.
     await fetch(API, {method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        theme: { name: activeTheme },
         app: { dateFormat: activeDateFormat },
         calcul: { pr: prDefault, mg: mgDefault },
         periodes: { nbExercices, nbAnneesCal },
@@ -687,8 +700,9 @@ async function load() {
   qs('smtp-test-to').value = smtp.user  || '';
   renderPresets(activePreset);
 
-  // Thème
-  activeTheme = settings.theme?.name || localStorage.getItem('tb_theme') || 'dark';
+  // Thème : préférence de l'utilisateur connecté (par profil), pas le réglage global.
+  activeTheme = (window.tbUserTheme && window.tbUserTheme())
+    || localStorage.getItem('tb_theme') || settings.theme?.name || 'dark';
   renderThemes();
 
   // Format date
