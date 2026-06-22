@@ -169,26 +169,26 @@
     .pb-grp-bd{padding:3px 3px 5px}
     .pb-dim{display:flex;align-items:center;gap:4px;padding:4px 7px;border-radius:5px;cursor:grab;font-size:.73rem;border:1px solid transparent;user-select:none}
     .pb-dim:hover{background:var(--surface2);border-color:var(--border)}
-    .pb-dim.ul{color:#90caf9;font-weight:600}
-    .pb-dim.uc{color:#ce93d8;font-weight:600}
+    .pb-dim.ul{color:var(--blue);font-weight:600}
+    .pb-dim.uc{color:var(--purple);font-weight:600}
     .pb-dim .qa{margin-left:auto;background:none;border:none;color:var(--muted);cursor:pointer;font-size:.85rem;padding:0 2px;line-height:1;opacity:0;flex-shrink:0}
     .pb-dim:hover .qa{opacity:1}
     .pb-dim .qa:hover{color:var(--blue)}
     .pb-meas{display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:5px;cursor:pointer;font-size:.73rem;user-select:none;border:1px solid transparent}
     .pb-meas:hover{background:var(--surface2);border-color:var(--border)}
-    .pb-meas.sel{background:rgba(76,175,80,.15);border-color:#388e3c;color:#a5d6a7;font-weight:600}
+    .pb-meas.sel{background:rgba(76,175,80,.15);border-color:#388e3c;color:var(--green);font-weight:600}
     /* Zones */
     .pb-zones-area{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
     .pb-zone-hd{font-size:.65rem;text-transform:uppercase;letter-spacing:.07em;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px}
-    .pb-zone-hd-l{color:#90caf9}.pb-zone-hd-d{color:#ffb74d}.pb-zone-hd-c{color:#ce93d8}.pb-zone-hd-m{color:#a5d6a7}
+    .pb-zone-hd-l{color:var(--blue)}.pb-zone-hd-d{color:var(--orange)}.pb-zone-hd-c{color:var(--purple)}.pb-zone-hd-m{color:var(--green)}
     .pb-drop{min-height:48px;border:2px dashed var(--border);border-radius:9px;padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;transition:border-color .12s,background .12s}
     .pb-drop.over{border-color:var(--blue);background:rgba(33,150,243,.07)}
     .pb-hint{font-size:.73rem;color:var(--muted);font-style:italic;pointer-events:none;align-self:center;padding:2px 4px}
     .pb-tag{display:inline-flex;align-items:center;gap:5px;padding:4px 8px 4px 11px;border-radius:20px;font-size:.76rem;cursor:grab;user-select:none;border:1px solid;white-space:nowrap}
-    .pb-tag-l{background:rgba(33,150,243,.12);border-color:#1565c0;color:#90caf9}
-    .pb-tag-d{background:rgba(255,152,0,.12);border-color:#e65100;color:#ffb74d}
-    .pb-tag-c{background:rgba(156,39,176,.12);border-color:#7b1fa2;color:#ce93d8}
-    .pb-tag-m{background:rgba(76,175,80,.12);border-color:#2e7d32;color:#a5d6a7;cursor:default}
+    .pb-tag-l{background:rgba(33,150,243,.12);border-color:#1565c0;color:var(--blue)}
+    .pb-tag-d{background:rgba(255,152,0,.12);border-color:#e65100;color:var(--orange)}
+    .pb-tag-c{background:rgba(156,39,176,.12);border-color:#7b1fa2;color:var(--purple)}
+    .pb-tag-m{background:rgba(76,175,80,.12);border-color:#2e7d32;color:var(--green);cursor:default}
     .pb-tag-num{font-size:.6rem;background:rgba(255,255,255,.18);border-radius:10px;padding:0 4px;margin-right:3px;font-weight:700}
     .pb-tag button{background:none;border:none;color:inherit;opacity:.5;cursor:pointer;font-size:.82rem;padding:0;line-height:1}
     .pb-tag button:hover{opacity:1}
@@ -2458,10 +2458,10 @@ function moveWidget(i,dir) {
 function wcSummaryHTML(w) {
   const dim = id => dimensions.find(d=>d.id===id)?.label || id;
   const parts = [];
-  if ((w.ruptures||[]).length)   parts.push(`<span style="color:#90caf9">↓ ${w.ruptures.map(dim).join(' › ')}</span>`);
-  if ((w.detailDims||[]).length) parts.push(`<span style="color:#ffb74d">↕ ${w.detailDims.map(dim).join(', ')}</span>`);
-  if ((w.pivotCols||[]).length)  parts.push(`<span style="color:#ce93d8">↔ ${w.pivotCols.map(dim).join(' × ')}</span>`);
-  if ((w.measures||[]).length)   parts.push(`<span style="color:#a5d6a7">∑ ${w.measures.map(k=>MEASURE_LIST.find(m=>m.key===k)?.label||k).join(', ')}</span>`);
+  if ((w.ruptures||[]).length)   parts.push(`<span style="color:var(--blue)">↓ ${w.ruptures.map(dim).join(' › ')}</span>`);
+  if ((w.detailDims||[]).length) parts.push(`<span style="color:var(--orange)">↕ ${w.detailDims.map(dim).join(', ')}</span>`);
+  if ((w.pivotCols||[]).length)  parts.push(`<span style="color:var(--purple)">↔ ${w.pivotCols.map(dim).join(' × ')}</span>`);
+  if ((w.measures||[]).length)   parts.push(`<span style="color:var(--green)">∑ ${w.measures.map(k=>MEASURE_LIST.find(m=>m.key===k)?.label||k).join(', ')}</span>`);
   return parts.join('<span style="color:var(--border);margin:0 4px">|</span>') || '<span style="color:var(--muted);font-style:italic">— à configurer —</span>';
 }
 
@@ -3794,7 +3794,7 @@ function pbOnPivotChange() {
   if (_pb) _pb.w.pivot = !!pivotOn;
   // Mise en évidence visuelle du label
   const lbl = document.getElementById('pb-pivot-lbl');
-  if (lbl) lbl.style.borderColor = pivotOn ? '#ce93d8' : 'var(--border)';
+  if (lbl) lbl.style.borderColor = pivotOn ? 'var(--purple)' : 'var(--border)';
   // Afficher/masquer la zone COLONNES dans les zones
   const zone = document.getElementById('pbz-col');
   if (zone) {
@@ -3833,9 +3833,9 @@ function pbRenderPalette() {
       <div class="pb-grp-bd" style="${hasUsed?'':'display:none'}">
         ${dims.map(d => {
           const cls = usedL.has(d.id) ? ' ul' : usedD.has(d.id) ? ' ud' : usedC.has(d.id) ? ' uc' : '';
-          const badge = usedL.has(d.id) ? '<span style="font-size:.6rem;opacity:.55;margin-left:auto;padding-right:2px;color:#90caf9">↓Rupture</span>'
-                      : usedD.has(d.id) ? '<span style="font-size:.6rem;opacity:.55;margin-left:auto;padding-right:2px;color:#ffb74d">↕Détail</span>'
-                      : usedC.has(d.id) ? '<span style="font-size:.6rem;opacity:.55;margin-left:auto;padding-right:2px;color:#ce93d8">↔Col</span>' : '';
+          const badge = usedL.has(d.id) ? '<span style="font-size:.6rem;opacity:.55;margin-left:auto;padding-right:2px;color:var(--blue)">↓Rupture</span>'
+                      : usedD.has(d.id) ? '<span style="font-size:.6rem;opacity:.55;margin-left:auto;padding-right:2px;color:var(--orange)">↕Détail</span>'
+                      : usedC.has(d.id) ? '<span style="font-size:.6rem;opacity:.55;margin-left:auto;padding-right:2px;color:var(--purple)">↔Col</span>' : '';
           const lineTag = d.level==='line' ? '<sup style="color:var(--orange);font-size:.58rem;margin-left:1px">⚡</sup>' : '';
           return `<div class="pb-dim${cls}" draggable="true"
             ondragstart="pbDragStart(event,'dim','${d.id}','pal')"

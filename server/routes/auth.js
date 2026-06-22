@@ -30,11 +30,23 @@ async function fetchSociete(user) {
 
 const USERS_FILE = path.join(__dirname, '../../data/users.json');
 const GROUPS_FILE = path.join(__dirname, '../../data/groups.json');
+const SETTINGS_FILE = path.join(__dirname, '../../data/settings.json');
 
 function readUsers() { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); }
 function writeUsers(d) { fs.writeFileSync(USERS_FILE, JSON.stringify(d, null, 2)); }
 function readGroups() { return JSON.parse(fs.readFileSync(GROUPS_FILE, 'utf8')); }
 function writeGroups(d) { fs.writeFileSync(GROUPS_FILE, JSON.stringify(d, null, 2)); }
+
+// Thème : préférence PAR UTILISATEUR (users.json `theme`). À défaut, on retombe sur
+// le thème global (settings.json) puis 'dark'. Allowlist = clés de TB_THEMES (theme.js).
+const VALID_THEMES = new Set(['dark', 'darkblue', 'darkgreen', 'light', 'pro', 'grisbleu']);
+function globalThemeDefault() {
+  try { return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'))?.theme?.name || 'dark'; }
+  catch { return 'dark'; }
+}
+function userTheme(u) {
+  return (u && VALID_THEMES.has(u.theme)) ? u.theme : globalThemeDefault();
+}
 
 // ── Bases de données disponibles (public) ─────────────────────────────────────
 router.get('/databases', async (req, res) => {
@@ -76,6 +88,7 @@ router.post('/login', async (req, res) => {
     pagePerms: group.pagePerms || {},
     dashboards: group.dashboards,
     reports: group.reports,
+    theme: userTheme(user),
     ...(database ? { database } : {}),
     ...(effectiveConnId ? { connId: effectiveConnId } : {}),
     ...(societe ? { societe } : {})
@@ -107,6 +120,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     pagePerms: group.pagePerms || {},
     dashboards: group.dashboards || [],
     reports: group.reports || [],
+    theme: userTheme(u),
     ...(req.user.database ? { database: req.user.database } : {}),
     ...(req.user.connId ? { connId: req.user.connId } : {}),
     ...(societe ? { societe } : {})
@@ -116,6 +130,23 @@ router.get('/me', authMiddleware, async (req, res) => {
   // droits courants — les UI peuvent ainsi détecter révocations et nouvelles permissions.
   const token = jwt.sign(payload, SECRET, { expiresIn: '12h' });
   res.json({ ...payload, token });
+});
+
+// ── Thème personnel ─────────────────────────────────────────────────────────────
+// Chaque utilisateur enregistre SON thème (users.json), sans toucher au thème global
+// ni à celui des autres comptes. Accessible à tout utilisateur authentifié.
+router.put('/theme', authMiddleware, (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!VALID_THEMES.has(name)) return res.status(400).json({ error: 'Thème inconnu' });
+  const users = readUsers();
+  const u = users.find(x => x.id === req.user.id);
+  if (!u) return res.status(404).json({ error: 'Utilisateur introuvable' });
+  u.theme = name;
+  writeUsers(users);
+  // Réémet un JWT à jour pour que le payload (et donc tb_user côté client) porte le thème.
+  const { iat, exp, ...rest } = req.user;
+  const token = jwt.sign({ ...rest, theme: name }, SECRET, { expiresIn: '12h' });
+  res.json({ ok: true, theme: name, token });
 });
 
 // ── Users CRUD (admin only) ────────────────────────────────────────────────────

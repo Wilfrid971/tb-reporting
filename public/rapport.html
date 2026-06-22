@@ -179,6 +179,7 @@
 <script>
 const API = '/api/commercial';
 const LS_PR = 'tb_prix_revient';
+function cssVar(name, fallback){ const v=getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v||fallback||''; }
 
 // ── Multi-select commercial ──────────────────────────────────────
 function toggleRepDd() {
@@ -608,12 +609,12 @@ async function loadMensuel(annee, mois, repid) {
       options: {
         responsive: true, maintainAspectRatio: true,
         plugins: {
-          legend: { labels: { color: '#e2e8f0', font: { size: 11 } } },
+          legend: { labels: { color: cssVar('--text'), font: { size: 11 } } },
           tooltip: { callbacks: { label: c => ` ${c.dataset.label} : ${new Intl.NumberFormat('fr-FR').format(c.raw)} €` } }
         },
         scales: {
-          x: { ticks: { color: '#8892a4' }, grid: { color: '#2a2d3e' } },
-          y: { ticks: { color: '#8892a4', callback: v => new Intl.NumberFormat('fr-FR').format(v) + ' €' }, grid: { color: '#2a2d3e' } }
+          x: { ticks: { color: cssVar('--muted') }, grid: { color: cssVar('--border') } },
+          y: { ticks: { color: cssVar('--muted'), callback: v => new Intl.NumberFormat('fr-FR').format(v) + ' €' }, grid: { color: cssVar('--border') } }
         }
       }
     });

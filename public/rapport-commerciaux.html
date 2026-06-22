@@ -135,6 +135,8 @@ const API   = '/api/commercial';
 const LS_PR = 'tb_prix_revient';
 const LS_MG = 'tb_mg_type';
 
+function cssVar(name, fallback){ const v=getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v||fallback||''; }
+
 function qs(id) { return document.getElementById(id); }
 function fmt(n, dec=0) {
   if (n===null||n===undefined||isNaN(n)) return '—';
@@ -206,7 +208,7 @@ function buildPieChart(top, total) {
       datasets: [{
         data: top.map(r => r.ca[0]),
         backgroundColor: top.map((_, i) => PIE_COLORS[i % PIE_COLORS.length]),
-        borderColor: '#1a1d2e', borderWidth: 2,
+        borderColor: cssVar('--surface'), borderWidth: 2,
       }]
     },
     options: {

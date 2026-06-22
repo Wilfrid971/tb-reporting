@@ -117,6 +117,8 @@
   </div>
 
   <script>
+    function cssVar(name, fallback){ const v=getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v||fallback||''; }
+
     const API = '/api/dashboard';
     const charts = {};
     let refreshTimer = null;
@@ -201,8 +203,8 @@
             maintainAspectRatio: true,
             plugins: { legend: { display: false } },
             scales: kpi.type === 'chart_pie' ? {} : {
-              x: { ticks: { color: '#8892a4', maxRotation: 45 }, grid: { color: '#2a2d3e' } },
-              y: { ticks: { color: '#8892a4', callback: v => formatValue(v, kpi.format) }, grid: { color: '#2a2d3e' } },
+              x: { ticks: { color: cssVar('--muted'), maxRotation: 45 }, grid: { color: cssVar('--border') } },
+              y: { ticks: { color: cssVar('--muted'), callback: v => formatValue(v, kpi.format) }, grid: { color: cssVar('--border') } },
             },
           },
         });

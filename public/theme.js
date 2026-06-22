@@ -23,10 +23,10 @@
     },
     light: {
       label: 'Clair', icon: '☀️',
-      '--bg': '#f0f2f7', '--surface': '#ffffff', '--surface2': '#f5f7fb',
-      '--border': '#dde1ec', '--text': '#1a1d2e', '--muted': '#5a6380',
-      '--text-muted': '#5a6380', '--blue': '#1976D2', '--accent': '#1976D2',
-      '--green': '#388e3c', '--orange': '#f57c00', '--red': '#d32f2f', '--purple': '#7b1fa2',
+      '--bg': '#eceff5', '--surface': '#ffffff', '--surface2': '#f3f5fa',
+      '--border': '#d4d9e6', '--text': '#14171f', '--muted': '#454c61',
+      '--text-muted': '#454c61', '--blue': '#1565C0', '--accent': '#1565C0',
+      '--green': '#2e7d32', '--orange': '#e65100', '--red': '#c62828', '--purple': '#6a1b9a',
     },
     pro: {
       label: 'Gris Pro', icon: '🔥',
@@ -37,9 +37,11 @@
     },
     grisbleu: {
       label: 'Gris & Bleu', icon: '🔷',
-      '--bg': '#eef1f7', '--surface': '#ffffff', '--surface2': '#f4f6fb',
-      '--border': '#d0d7e8', '--text': '#1565C0', '--muted': '#5c7aa8',
-      '--text-muted': '#5c7aa8', '--blue': '#1565C0', '--accent': '#1565C0',
+      // Texte = bleu nuit très foncé (lisible sur fond clair) ; le bleu vif reste
+      // réservé aux accents (--blue/--accent), pas au corps de texte.
+      '--bg': '#e9edf5', '--surface': '#ffffff', '--surface2': '#f1f4fa',
+      '--border': '#cdd6e8', '--text': '#102a43', '--muted': '#3f587f',
+      '--text-muted': '#3f587f', '--blue': '#1565C0', '--accent': '#1565C0',
       '--green': '#2e7d32', '--orange': '#e65100', '--red': '#c62828', '--purple': '#6a1b9a',
     },
   };
@@ -53,14 +55,29 @@
     localStorage.setItem('tb_theme', name);
   }
 
-  var saved = localStorage.getItem('tb_theme') || 'dark';
-  applyTheme(saved);
+  // Thème PAR UTILISATEUR : priorité au thème du compte connecté (tb_user.theme,
+  // alimenté par /api/auth login & me), puis dernier thème appliqué sur ce poste
+  // (tb_theme), puis 'dark'. Plus de réglage global imposé à tous.
+  function userTheme() {
+    try {
+      var u = JSON.parse(localStorage.getItem('tb_user') || 'null');
+      if (u && u.theme && THEMES[u.theme]) return u.theme;
+    } catch (e) {}
+    return null;
+  }
+  applyTheme(userTheme() || localStorage.getItem('tb_theme') || 'dark');
 
-  fetch('/api/settings').then(function (r) { return r.json(); }).then(function (s) {
-    var t = (s.theme && s.theme.name) ? s.theme.name : 'dark';
-    if (t !== localStorage.getItem('tb_theme')) applyTheme(t);
-  }).catch(function () {});
+  // Re-synchronise si la session (tb_user) est rafraîchie après coup (auth-client
+  // refreshSession met à jour tb_user : un changement de thème fait sur un autre
+  // poste se propage ainsi au prochain refresh, sans rechargement manuel).
+  window.addEventListener('storage', function (e) {
+    if (e.key === 'tb_user') {
+      var t = userTheme();
+      if (t && t !== localStorage.getItem('tb_theme')) applyTheme(t);
+    }
+  });
 
   window.TB_THEMES = THEMES;
   window.applyTheme = applyTheme;
+  window.tbUserTheme = userTheme;
 })();
