@@ -193,6 +193,8 @@
 const API = '/api/commercial';
 const charts = {};
 
+function cssVar(name, fallback){ const v=getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v||fallback||''; }
+
 const DIM_LABELS = {
   TIRCATEGORIE:'Catégorie', TIRACTIVITE:'Activité', TIRGEO:'Zone géo',
   TIRBRANCHE:'Branche', TIRENSEIGNE:'Enseigne', TIRORIGINE:'Origine',
@@ -316,7 +318,7 @@ function pivotStacked(rows, topN = 8) {
     label: seg,
     data: reps.map(rep => map[rep]?.[seg] || 0),
     backgroundColor: PALETTE[i % PALETTE.length],
-    borderColor: '#1a1d2e', borderWidth: 1
+    borderColor: cssVar('--surface'), borderWidth: 1
   }));
   return { labels: reps, datasets };
 }
@@ -349,18 +351,18 @@ function renderGroupedBar(canvasId, rowsN, rowsN1, labelN, labelN1, color) {
       labels,
       datasets: [
         { label: labelN,  data: top.map(r => parseFloat(r.valeur)||0), backgroundColor: hexAlpha(color, 0.8), borderColor: color, borderWidth: 1 },
-        { label: labelN1, data: labels.map(l => n1Map[l] || 0), backgroundColor: hexAlpha('#8892a4', 0.45), borderColor: '#8892a4', borderWidth: 1 }
+        { label: labelN1, data: labels.map(l => n1Map[l] || 0), backgroundColor: hexAlpha('#8892a4', 0.45), borderColor: cssVar('--muted'), borderWidth: 1 }
       ]
     },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: true,
       plugins: {
-        legend: { position: 'top', labels: { color: '#e2e8f0', font: { size: 10 }, padding: 10, boxWidth: 12 } },
+        legend: { position: 'top', labels: { color: cssVar('--text'), font: { size: 10 }, padding: 10, boxWidth: 12 } },
         tooltip: { callbacks: { label: c => ` ${c.dataset.label} : ${fmtEuro(c.raw)}` } }
       },
       scales: {
-        x: { ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } },
-        y: { ticks: { color: '#e2e8f0', font: { size: 11 } }, grid: { color: '#2a2d3e' } }
+        x: { ticks: { color: cssVar('--muted'), callback: v => fmt(v)+'€' }, grid: { color: cssVar('--border') } },
+        y: { ticks: { color: cssVar('--text'), font: { size: 11 } }, grid: { color: cssVar('--border') } }
       }
     }
   });
@@ -383,12 +385,12 @@ function renderStacked(canvasId, rows) {
     options: {
       responsive: true, maintainAspectRatio: true,
       plugins: {
-        legend: { position: 'bottom', labels: { color: '#e2e8f0', font: { size: 10 }, padding: 8, boxWidth: 12 } },
+        legend: { position: 'bottom', labels: { color: cssVar('--text'), font: { size: 10 }, padding: 8, boxWidth: 12 } },
         tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label} : ${fmtEuro(ctx.raw)}` } }
       },
       scales: {
-        x: { stacked: true, ticks: { color: '#8892a4', font: { size: 10 } }, grid: { color: '#2a2d3e' } },
-        y: { stacked: true, ticks: { color: '#8892a4', callback: v => fmt(v)+'€' }, grid: { color: '#2a2d3e' } }
+        x: { stacked: true, ticks: { color: cssVar('--muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } },
+        y: { stacked: true, ticks: { color: cssVar('--muted'), callback: v => fmt(v)+'€' }, grid: { color: cssVar('--border') } }
       }
     }
   });

@@ -85,8 +85,8 @@
     .lbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
     .lvl-1{background:rgba(33,150,243,.07)}
     .lvl-1 td.lbl{padding-left:10px;font-weight:700;color:var(--text)}
-    .lvl-2 td.lbl{padding-left:30px;font-weight:600;color:#cbd5e1}
-    .lvl-3 td.lbl{padding-left:50px;color:#a8b3c7}
+    .lvl-2 td.lbl{padding-left:30px;font-weight:600;color:var(--text)}
+    .lvl-3 td.lbl{padding-left:50px;color:var(--muted)}
     .lvl-1 td{border-top:2px solid var(--border)}
     .toggler{display:inline-block;width:14px;text-align:center;cursor:pointer;
       color:var(--muted);user-select:none}
@@ -102,18 +102,18 @@
     .gaps-row:first-child{border-top:none}
     .gaps-head{padding:10px 16px;display:flex;align-items:center;gap:10px;
       cursor:pointer;background:var(--surface2)}
-    .gaps-head:hover{background:#272b40}
+    .gaps-head:hover{background:var(--surface2)}
     .gaps-head .name{font-weight:700;font-size:.85rem}
     .gaps-head .count{color:var(--orange);font-size:.78rem;margin-left:auto}
-    .gaps-body{padding:8px 16px 12px 36px;font-size:.78rem;display:none;color:#cbd5e1}
+    .gaps-body{padding:8px 16px 12px 36px;font-size:.78rem;display:none;color:var(--text)}
     .gaps-body.open{display:block}
     .gaps-body li{padding:3px 0;list-style:disc;margin-left:20px}
     .gaps-body .cli-cmd{color:var(--muted);font-size:.7rem;margin-left:6px}
     .gaps-body ul.abs-list,.gaps-body ul.conc-list{margin:0;padding:0}
     .conc-block{margin-top:8px;padding-top:6px;border-top:1px dashed var(--border)}
-    .conc-title{font-weight:600;color:#90caf9;font-size:.74rem;margin-bottom:2px}
-    .conc-classif{color:#ffb74d;font-size:.7rem}
-    .conc-price{color:#81c784;font-size:.72rem;margin-left:4px}
+    .conc-title{font-weight:600;color:var(--blue);font-size:.74rem;margin-bottom:2px}
+    .conc-classif{color:var(--orange);font-size:.7rem}
+    .conc-price{color:var(--green);font-size:.72rem;margin-left:4px}
     .pricing-table{width:100%;border-collapse:collapse;font-size:.78rem;margin-top:6px}
     .pricing-table th,.pricing-table td{padding:5px 8px;border-bottom:1px dashed var(--border);text-align:right}
     .pricing-table th{text-align:left;color:var(--muted);font-weight:700;text-transform:uppercase;
@@ -177,6 +177,11 @@
 
 <script>
 const API = '/api/prix';
+// Chart.js ne résout pas les var() CSS : on lit la valeur calculée du thème courant.
+function cssVar(name, fallback){
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback || '';
+}
 const STORAGE_KEY = 'rapport-prix:state';
 
 const URL_PARAMS = new URLSearchParams(location.search);
@@ -804,7 +809,7 @@ function renderNonRattaches(data){
       <div class="gaps-body" id="${sid}">`;
     entry.clients.forEach((c, ci) => {
       const cid = `nr-cli-${si}-${ci}`;
-      html += `<div style="margin:6px 0;border-left:3px solid #ff9800;padding-left:8px">
+      html += `<div style="margin:6px 0;border-left:3px solid var(--orange);padding-left:8px">
         <div onclick="document.getElementById('${cid}').classList.toggle('open')" style="cursor:pointer;display:flex;gap:8px;align-items:center;padding:4px 6px;background:rgba(255,152,0,.08)">
           <span style="font-weight:600">${escH(c.nom)}</span>
           <span class="muted" style="font-size:.7rem">${escH(c.code||'')}</span>
@@ -870,7 +875,7 @@ function renderChart(data){
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { labels: { color: '#cbd5e1', font: { size: 11 } } },
+        legend: { labels: { color: cssVar('--text'), font: { size: 11 } } },
         tooltip: { callbacks: { label: c => {
           const lines = [`${c.dataset.label} — moyen : ${fmtEur(c.parsed.y)}`];
           const mn = c.dataset.prixMinHt?.[c.dataIndex];
@@ -880,8 +885,8 @@ function renderChart(data){
         } } },
       },
       scales: {
-        x: { ticks: { color: '#8892a4' }, grid: { color: '#2a2d3e' } },
-        y: { ticks: { color: '#8892a4', callback: v => new Intl.NumberFormat('fr-FR').format(v) + ' €' }, grid: { color: '#2a2d3e' } },
+        x: { ticks: { color: cssVar('--muted') }, grid: { color: cssVar('--border') } },
+        y: { ticks: { color: cssVar('--muted'), callback: v => new Intl.NumberFormat('fr-FR').format(v) + ' €' }, grid: { color: cssVar('--border') } },
       },
     },
   });
@@ -905,8 +910,8 @@ function renderMonthly(data){
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:14px;padding:14px">`;
   mc.categories.forEach((cat, i) => {
-    html += `<div style="background:#161824;border:1px solid #2a2d3e;border-radius:8px;padding:10px">
-      <div style="color:#cbd5e1;font-weight:600;font-size:.85rem;margin-bottom:6px">${escH(cat.secteur)}</div>
+    html += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px">
+      <div style="color:var(--text);font-weight:600;font-size:.85rem;margin-bottom:6px">${escH(cat.secteur)}</div>
       <div style="height:260px;position:relative"><canvas id="mc-${i}"></canvas></div>
     </div>`;
   });
@@ -939,7 +944,7 @@ function renderMonthly(data){
         responsive:true, maintainAspectRatio:false,
         interaction:{ mode:'index', intersect:false },
         plugins:{
-          legend:{ labels:{ color:'#cbd5e1', font:{size:10}, boxWidth:12 } },
+          legend:{ labels:{ color:cssVar('--text'), font:{size:10}, boxWidth:12 } },
           tooltip:{ callbacks:{ label: c => {
             const v = c.parsed.y;
             if (v == null) return `${c.dataset.label} : —`;
@@ -951,11 +956,11 @@ function renderMonthly(data){
           } } },
         },
         scales:{
-          x:    { ticks:{ color:'#8892a4', font:{size:10} }, grid:{ color:'#2a2d3e' } },
-          vol:  { type:'linear', position:'left',  title:{ display:true, text:'Cartons', color:'#8892a4' },
-                  ticks:{ color:'#8892a4', callback:v => nfCart.format(v) }, grid:{ color:'#2a2d3e' }, beginAtZero:true },
-          prix: { type:'linear', position:'right', title:{ display:true, text:'Prix relevé HT €', color:'#8892a4' },
-                  ticks:{ color:'#8892a4', callback:v => nfCart.format(v) + ' €' }, grid:{ drawOnChartArea:false } },
+          x:    { ticks:{ color:cssVar('--muted'), font:{size:10} }, grid:{ color:cssVar('--border') } },
+          vol:  { type:'linear', position:'left',  title:{ display:true, text:'Cartons', color:cssVar('--muted') },
+                  ticks:{ color:cssVar('--muted'), callback:v => nfCart.format(v) }, grid:{ color:cssVar('--border') }, beginAtZero:true },
+          prix: { type:'linear', position:'right', title:{ display:true, text:'Prix relevé HT €', color:cssVar('--muted') },
+                  ticks:{ color:cssVar('--muted'), callback:v => nfCart.format(v) + ' €' }, grid:{ drawOnChartArea:false } },
         },
       },
     });
