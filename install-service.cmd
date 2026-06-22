@@ -64,27 +64,62 @@ if not exist "%APP_DIR%\%APP_SCRIPT%" (
 )
 echo [OK] Script applicatif : %APP_SCRIPT%
 
-REM ---- 4. NSSM : detecter ou telecharger ----------------------
+REM ---- 4. NSSM : PATH > copie locale > telechargement ---------
+REM Ordre : 1) deja dans le PATH  2) nssm.exe trouve a cote du script
+REM ou dans D:\ia (copie vers System32)  3) telechargement nssm.cc (TLS 1.2).
+set "NSSM_READY="
+
 where nssm >nul 2>&1
-if errorlevel 1 (
-    echo [INFO] nssm.exe absent du PATH - telechargement depuis nssm.cc...
-    set "NSSM_TMP=%TEMP%\nssm-install"
-    set "NSSM_ZIP=%TEMP%\nssm-install.zip"
-    if exist "!NSSM_TMP!" rmdir /s /q "!NSSM_TMP!"
-    powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'https://nssm.cc/release/nssm-2.24.zip' -OutFile '%TEMP%\nssm-install.zip' -UseBasicParsing; Expand-Archive -Path '%TEMP%\nssm-install.zip' -DestinationPath '%TEMP%\nssm-install' -Force; Copy-Item '%TEMP%\nssm-install\nssm-2.24\win64\nssm.exe' '%WINDIR%\System32\nssm.exe' -Force; exit 0 } catch { Write-Host $_.Exception.Message; exit 1 }"
-    if errorlevel 1 (
-        echo [ERREUR] Telechargement NSSM echoue.
-        echo Telecharger manuellement https://nssm.cc/release/nssm-2.24.zip
-        echo puis copier win64\nssm.exe dans %%WINDIR%%\System32\
-        pause
-        exit /b 1
-    )
-    echo [OK] nssm.exe installe dans System32
-) else (
+if not errorlevel 1 (
     for /f "delims=" %%i in ('where nssm') do (
         if not defined NSSM_PATH set "NSSM_PATH=%%i"
     )
     echo [OK] nssm detecte : !NSSM_PATH!
+    set "NSSM_READY=1"
+)
+
+if not defined NSSM_READY (
+    set "NSSM_FOUND="
+    for %%P in (
+        "%APP_DIR%\nssm.exe"
+        "%APP_DIR%\nssm\win64\nssm.exe"
+        "%APP_DIR%\nssm\nssm.exe"
+        "D:\ia\nssm.exe"
+        "D:\IA\nssm.exe"
+    ) do (
+        if not defined NSSM_FOUND if exist "%%~P" set "NSSM_FOUND=%%~P"
+    )
+    if defined NSSM_FOUND (
+        echo [INFO] nssm.exe trouve : !NSSM_FOUND! - copie dans System32...
+        copy /Y "!NSSM_FOUND!" "%WINDIR%\System32\nssm.exe" >nul
+        if errorlevel 1 (
+            echo [ERREUR] Copie de nssm.exe vers System32 echouee.
+            pause
+            exit /b 1
+        )
+        echo [OK] nssm.exe installe dans System32
+        set "NSSM_READY=1"
+    )
+)
+
+if not defined NSSM_READY (
+    echo [INFO] nssm.exe introuvable localement - telechargement depuis nssm.cc...
+    set "NSSM_TMP=%TEMP%\nssm-install"
+    if exist "!NSSM_TMP!" rmdir /s /q "!NSSM_TMP!"
+    REM TLS 1.2 force : les Windows Server anciens negocient TLS 1.0 par defaut,
+    REM refuse par nssm.cc ("Impossible de creer un canal securise SSL/TLS").
+    powershell -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://nssm.cc/release/nssm-2.24.zip' -OutFile '%TEMP%\nssm-install.zip' -UseBasicParsing; Expand-Archive -Path '%TEMP%\nssm-install.zip' -DestinationPath '%TEMP%\nssm-install' -Force; Copy-Item '%TEMP%\nssm-install\nssm-2.24\win64\nssm.exe' '%WINDIR%\System32\nssm.exe' -Force; exit 0 } catch { Write-Host $_.Exception.Message; exit 1 }"
+    if errorlevel 1 (
+        echo [ERREUR] Telechargement NSSM echoue.
+        echo Solution : recuperer nssm.exe ^(win64^) puis le placer SOIT a cote
+        echo de ce script ^(%APP_DIR%\nssm.exe^), SOIT dans %%WINDIR%%\System32\,
+        echo et relancer install-service.cmd.
+        echo Source : https://nssm.cc/release/nssm-2.24.zip
+        pause
+        exit /b 1
+    )
+    echo [OK] nssm.exe installe dans System32
+    set "NSSM_READY=1"
 )
 
 REM ---- 5. Stopper le node manuel s'il tourne ------------------
