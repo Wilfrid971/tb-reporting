@@ -85,9 +85,11 @@ if not exist "%APP_DIR%\node_modules" (
 
 if defined DOINSTALL (
     echo [INFO] npm install --production ^(peut prendre plusieurs minutes^)...
-    REM Chrome (Puppeteer) doit atterrir dans le cache PROJET, pas celui de
-    REM l'utilisateur courant : sinon le service (LocalSystem) ne le trouve pas.
-    set "PUPPETEER_CACHE_DIR=%PUP_CACHE%"
+    REM On NE laisse PAS le postinstall Puppeteer telecharger Chrome ici : un
+    REM echec de ce download (reseau/IPv6) ferait planter tout npm install et
+    REM le service ne redemarrerait pas. Chrome est installe a l'etape 5b,
+    REM separement et de maniere non bloquante.
+    set "PUPPETEER_SKIP_DOWNLOAD=true"
     call npm install --production --no-audit --no-fund
     if errorlevel 1 (
         echo [ERREUR] npm install a echoue. Service NON redemarre.
@@ -103,11 +105,23 @@ if defined DOINSTALL (
 REM ---- 5b. Chrome Puppeteer + env service (idempotent) -------
 REM Garantit que Chrome existe dans le cache projet et que le service
 REM pointe dessus, meme quand les dependances n'ont pas change.
+REM --dns-result-order=ipv4first : les serveurs Caraibes (Guadeloupe/Martinique)
+REM n'ont pas d'IPv6 routable -> sans ca le download Google part en IPv6 et
+REM echoue (ENETUNREACH). Etape NON bloquante : si Chrome manque, le service
+REM redemarre quand meme (seuls les rapports PDF resteront KO jusqu'a correction).
 set "PUPPETEER_CACHE_DIR=%PUP_CACHE%"
+set "NODE_OPTIONS=--dns-result-order=ipv4first"
 if not exist "%PUP_CACHE%\chrome" (
     echo [INFO] Chrome Puppeteer absent du cache projet - installation...
     call npx --yes puppeteer browsers install chrome
+    if errorlevel 1 (
+        echo [ATTENTION] Telechargement de Chrome echoue - rapports PDF KO.
+        echo Reessayer manuellement : set NODE_OPTIONS=--dns-result-order=ipv4first ^&^& set PUPPETEER_CACHE_DIR=%PUP_CACHE% ^&^& npx puppeteer browsers install chrome
+    ) else (
+        echo [OK] Chrome installe dans le cache projet
+    )
 )
+set "NODE_OPTIONS="
 nssm set %SERVICE_NAME% AppEnvironmentExtra PUPPETEER_CACHE_DIR=%PUP_CACHE% >nul 2>&1
 
 REM ---- 6. Redemarrage ----------------------------------------

@@ -141,15 +141,19 @@ REM (%%WINDIR%%\system32\config\systemprofile\.cache\puppeteer) est vide, donc
 REM les rapports PDF echouent ("Could not find Chrome"). On force un cache
 REM projet, lisible par LocalSystem, et on y installe Chrome.
 echo [INFO] Installation de Chrome pour Puppeteer dans %PUP_CACHE% ...
+REM --dns-result-order=ipv4first : serveurs Caraibes sans IPv6 routable, sinon
+REM le download Google part en IPv6 et echoue (ENETUNREACH).
 set "PUPPETEER_CACHE_DIR=%PUP_CACHE%"
+set "NODE_OPTIONS=--dns-result-order=ipv4first"
 call npx --yes puppeteer browsers install chrome
 if errorlevel 1 (
     echo [ATTENTION] Telechargement de Chrome ^(Puppeteer^) echoue.
     echo Les rapports PDF echoueront tant que Chrome n'est pas installe.
-    echo Relancer : set PUPPETEER_CACHE_DIR=%PUP_CACHE% ^&^& npx puppeteer browsers install chrome
+    echo Relancer : set NODE_OPTIONS=--dns-result-order=ipv4first ^&^& set PUPPETEER_CACHE_DIR=%PUP_CACHE% ^&^& npx puppeteer browsers install chrome
 ) else (
     echo [OK] Chrome installe dans le cache projet
 )
+set "NODE_OPTIONS="
 
 REM ---- 7. Si le service existe, l'arreter et le supprimer -----
 sc query %SERVICE_NAME% >nul 2>&1
