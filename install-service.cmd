@@ -21,6 +21,7 @@ set "APP_DIR=%~dp0"
 if "%APP_DIR:~-1%"=="\" set "APP_DIR=%APP_DIR:~0,-1%"
 set "APP_SCRIPT=server\app.js"
 set "LOG_DIR=%APP_DIR%\logs"
+set "PUP_CACHE=%APP_DIR%\.puppeteer-cache"
 set "ROTATE_BYTES=10485760"
 set "RESTART_DELAY=5000"
 
@@ -134,6 +135,26 @@ if not exist "%LOG_DIR%" (
     echo [OK] Dossier logs deja present
 )
 
+REM ---- 6b. Chrome pour Puppeteer dans le cache PROJET ---------
+REM Le service tourne sous LocalSystem : son cache Puppeteer par defaut
+REM (%%WINDIR%%\system32\config\systemprofile\.cache\puppeteer) est vide, donc
+REM les rapports PDF echouent ("Could not find Chrome"). On force un cache
+REM projet, lisible par LocalSystem, et on y installe Chrome.
+echo [INFO] Installation de Chrome pour Puppeteer dans %PUP_CACHE% ...
+REM --dns-result-order=ipv4first : serveurs Caraibes sans IPv6 routable, sinon
+REM le download Google part en IPv6 et echoue (ENETUNREACH).
+set "PUPPETEER_CACHE_DIR=%PUP_CACHE%"
+set "NODE_OPTIONS=--dns-result-order=ipv4first"
+call npx --yes puppeteer browsers install chrome
+if errorlevel 1 (
+    echo [ATTENTION] Telechargement de Chrome ^(Puppeteer^) echoue.
+    echo Les rapports PDF echoueront tant que Chrome n'est pas installe.
+    echo Relancer : set NODE_OPTIONS=--dns-result-order=ipv4first ^&^& set PUPPETEER_CACHE_DIR=%PUP_CACHE% ^&^& npx puppeteer browsers install chrome
+) else (
+    echo [OK] Chrome installe dans le cache projet
+)
+set "NODE_OPTIONS="
+
 REM ---- 7. Si le service existe, l'arreter et le supprimer -----
 sc query %SERVICE_NAME% >nul 2>&1
 if not errorlevel 1 (
@@ -164,6 +185,8 @@ nssm set %SERVICE_NAME% AppRotateOnline    1
 nssm set %SERVICE_NAME% AppRotateBytes     %ROTATE_BYTES%
 nssm set %SERVICE_NAME% AppExit Default    Restart
 nssm set %SERVICE_NAME% AppRestartDelay    %RESTART_DELAY%
+REM Cache Puppeteer fixe (compte LocalSystem) -> rapports PDF des crons OK
+nssm set %SERVICE_NAME% AppEnvironmentExtra PUPPETEER_CACHE_DIR=%PUP_CACHE%
 echo [OK] Service configure
 
 REM ---- 9. Demarrer le service ---------------------------------
