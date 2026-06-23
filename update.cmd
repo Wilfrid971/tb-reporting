@@ -19,6 +19,7 @@ if "%APP_DIR:~-1%"=="\" set "APP_DIR=%APP_DIR:~0,-1%"
 set "LOG_DIR=%APP_DIR%\logs"
 set "HASH_FILE=%LOG_DIR%\.pkg-hash"
 set "LOCK_FILE=%APP_DIR%\package-lock.json"
+set "PUP_CACHE=%APP_DIR%\.puppeteer-cache"
 
 echo ============================================================
 echo   TB Reporting - Mise a jour
@@ -84,6 +85,9 @@ if not exist "%APP_DIR%\node_modules" (
 
 if defined DOINSTALL (
     echo [INFO] npm install --production ^(peut prendre plusieurs minutes^)...
+    REM Chrome (Puppeteer) doit atterrir dans le cache PROJET, pas celui de
+    REM l'utilisateur courant : sinon le service (LocalSystem) ne le trouve pas.
+    set "PUPPETEER_CACHE_DIR=%PUP_CACHE%"
     call npm install --production --no-audit --no-fund
     if errorlevel 1 (
         echo [ERREUR] npm install a echoue. Service NON redemarre.
@@ -95,6 +99,16 @@ if defined DOINSTALL (
     for /f "delims=" %%H in ('powershell -NoProfile -Command "(Get-FileHash '%LOCK_FILE%' -Algorithm SHA256).Hash" 2^>nul') do > "%HASH_FILE%" echo %%H
     echo [OK] Dependances a jour
 )
+
+REM ---- 5b. Chrome Puppeteer + env service (idempotent) -------
+REM Garantit que Chrome existe dans le cache projet et que le service
+REM pointe dessus, meme quand les dependances n'ont pas change.
+set "PUPPETEER_CACHE_DIR=%PUP_CACHE%"
+if not exist "%PUP_CACHE%\chrome" (
+    echo [INFO] Chrome Puppeteer absent du cache projet - installation...
+    call npx --yes puppeteer browsers install chrome
+)
+nssm set %SERVICE_NAME% AppEnvironmentExtra PUPPETEER_CACHE_DIR=%PUP_CACHE% >nul 2>&1
 
 REM ---- 6. Redemarrage ----------------------------------------
 echo [INFO] Demarrage du service...

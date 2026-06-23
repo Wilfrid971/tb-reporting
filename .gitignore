@@ -1,5 +1,6 @@
 # Dépendances
 node_modules/
+.puppeteer-cache/
 
 # Secrets
 .env
