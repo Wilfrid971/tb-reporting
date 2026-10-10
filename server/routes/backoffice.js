@@ -1286,7 +1286,14 @@ async function executeCustomSource(cs, overrideParams = {}, overrideMeasures = n
     if (s === '12m')   { const f=new Date(now); f.setMonth(f.getMonth()-12); return { d:isoD(f), f:isoD(now) }; }
     if (s.startsWith('cal:')) { const y=parseInt(s.slice(4))||fallY; return { d:`${y}-01-01`, f:`${y}-12-31` }; }
     if (s.startsWith('exe:')) { const p=s.slice(4).split(':'); return { d:p[0], f:p[1] }; }
-    if (s.startsWith('ytd_exe:')) { const p=s.slice(8).split(':'); return { d:p[0], f:isoD(now) }; }
+    if (s.startsWith('ytd_exe:')) {
+      // YTD exercice = exercice en cours : si l'exercice stocké est clos, on décale d'un an
+      // (ex: rapport enregistré sur 2025-10-01→2026-09-30, envoyé le 2026-10-10 → 2026-10-01)
+      const p=s.slice(8).split(':'); let d0=p[0], d1=p[1]||p[0];
+      const today=isoD(now), addY=(x,n)=>`${parseInt(x.slice(0,4))+n}${x.slice(4)}`;
+      while (d1 && today > d1) { d0=addY(d0,1); d1=addY(d1,1); }
+      return { d:d0, f:today };
+    }
     return { d:`${parseInt(rp(s))||fallY}-01-01`, f:`${parseInt(rp(s))||fallY}-12-31` };
   }
   const dv = overrideParams.periode_debut || f.periode_debut || overrideParams.annee || f.annee || String(curY);

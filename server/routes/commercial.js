@@ -2954,11 +2954,12 @@ async function buildEmailCaCommerciaux(pools, isFull, prCol, mgType, sec = {}, a
 }
 
 async function buildBuiltinExcel(config) {
-  const { pages=['rapport_ca','rapport_commerciaux'], periode='ytd', annee=null, pr='PLVCRUMP', mg='sf', dbs, asof=null, _userDatabase=null, _userConnId=null, _societe=null } = config;
+  const { pages=['rapport_ca','rapport_commerciaux'], periode='ytd', pr='PLVCRUMP', mg='sf', dbs, asof=null, _userDatabase=null, _userConnId=null, _societe=null } = config;
   const isFull = periode === 'full';
   const prCol  = resolvePrCol(pr);
   const mgLabel = mg === 'af' ? 'AF' : 'SF';
   const pools  = await getConnPools(dbs, { database: _userDatabase, connId: _userConnId });
+  const annee  = await resolveSchedAnnee(pools[0]?.pool, config.annee || null, asof);
   // Multi-base : concatène les sociétés de chaque pool. _societe (req.user.societe) ne s'applique que mono-base.
   const societes = pools.length === 1 && _societe
     ? [_societe]
@@ -3743,6 +3744,19 @@ async function resolveCurrentExeAnnee(pool, asof = null) {
   }
 }
 
+// Envois planifiés : la config stocke la période choisie à l'enregistrement
+// (ex: ytd_exe:2025-10-01:2026-09-30). Un YTD exercice signifie "exercice en cours" :
+// si la date du jour sort de l'exercice stocké, on recale sur l'exercice courant.
+async function resolveSchedAnnee(pool, annee, asof = null) {
+  if (!annee) return resolveCurrentExeAnnee(pool, asof);
+  const s = String(annee);
+  if (!s.startsWith('ytd_exe:')) return annee;
+  const [, d0, d1] = s.split(':');
+  const today = asof || new Date().toISOString().slice(0, 10);
+  if (today >= d0 && today <= d1) return annee;
+  return (await resolveCurrentExeAnnee(pool, asof)) || annee;
+}
+
 // Rapport "Règlement clients" pour email/PDF
 // Calculs : factures TTC sur 12 mois glissants ; DSO par client basé sur la période
 // d'activité réelle (DATEDIFF 1ère facture → caFin, plancher 30 j) ; DSO global =
@@ -3899,7 +3913,7 @@ async function buildBuiltinEmailHtml(config) {
   const isFull = periode === 'full';
   const prCol  = resolvePrCol(pr);
   const pools  = await getConnPools(dbs, { database: _userDatabase, connId: _userConnId });
-  if (!annee) annee = await resolveCurrentExeAnnee(pools[0]?.pool, asof);
+  annee = await resolveSchedAnnee(pools[0]?.pool, annee, asof);
   // Multi-base : concatène les sociétés de chaque pool. _societe (req.user.societe) ne s'applique que mono-base.
   const societes = pools.length === 1 && _societe
     ? [_societe]
