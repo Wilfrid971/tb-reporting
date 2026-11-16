@@ -7,6 +7,7 @@ const { getUserPool, sql } = require('../config/database');
 const kpisConfig = require('../config/kpis.json');
 const commercialRouter = require('./routes/commercial');
 const { router: backofficeRouter, setupCronJobs } = require('./routes/backoffice');
+const { setupStatGroupesCron } = require('./jobs/stat-groupes');
 const settingsRouter = require('./routes/settings');
 const aiRouter    = require('./routes/ai');
 const stockRouter = require('./routes/stock');
@@ -90,6 +91,7 @@ app.get('/api/health', authMiddleware, async (req, res) => {
 
 app.listen(PORT, () => {
   setupCronJobs();
+  setupStatGroupesCron();
   console.log(`[SERVER] Dashboard disponible sur http://localhost:${PORT}`);
   console.log(`[SERVER] API disponible sur http://localhost:${PORT}/api/dashboard`);
 });
