@@ -1,0 +1,31 @@
+{
+  "enabled": true,
+  "cron": "0 7 1 * *",
+  "dbs": "default",
+  "recipients": [
+    "michel.tejou@impec.fr"
+  ],
+  "outputDir": "/mnt/impgwa-nas/doc-open/Michel/stat wavesoft",
+  "subject": "Stat Wavesoft groupes clients — CA HT au {date}",
+  "groups": [
+    {"name": "Groupe CASH SERGENT", "categories": ["GR. CASH SERGENT"]},
+    {"name": "Groupe DESPOINTES 8A8", "categories": ["DESPOINTES 8 A HUIT"]},
+    {"name": "Groupe DESPOINTES CARREFOUR EXPRESS", "categories": ["DESPOINTES CARR. EXP"]},
+    {"name": "Groupe DESPOINTES CARREFOUR MARKET", "categories": ["DESPOINTES CARR. MARKET"]},
+    {"name": "Groupe DESPOINTES KARUCASH", "clients": ["KARUCASH"]},
+    {"name": "Groupe DESPOINTES MILENIS", "categories": ["DESPOINTES MILENIS"]},
+    {"name": "Groupe DISCOUNT NATHALIE", "categories": ["GR. DISCOUNT"]},
+    {"name": "Groupe GBH CARREFOUR GRAND CAMP", "clients": ["SGC CARREFOUR GRAND-CAMP"]},
+    {"name": "Groupe GBH CARREFOUR SAINT FRANCOIS", "clients": ["CARREFOUR CONTACT SAINT-FRANCOIS"]},
+    {"name": "Groupe GBH DESTRELLAND", "clients": ["HYPER DESTRELLAN"]},
+    {"name": "Groupe HYPER MARCHE SOCOFORT", "clients": ["Hyper marché BAS DU FORT SOCOFORT"]},
+    {"name": "Groupe LUCE SODEX BAILLIF ET PETIT CANAL", "clients": ["SODEX BAILLIF", "U-EXPRESS SODEX GOURBEYRE SAS", "U-EXPRESS SODEX GRIPPON NEJ SARL", "SODEX PETIT CANAL"]},
+    {"name": "Groupe LUCE Top Prix", "categories": ["GR. TOP PRIX"], "exclude": ["U-EXPRESS SODEX GOURBEYRE SAS", "U-EXPRESS SODEX GRIPPON NEJ SARL"]},
+    {"name": "Groupe MY AUCHAN", "categories": ["MY AUCHAN"]},
+    {"name": "Groupe SOCO Leclerc", "clients": ["SOCO SAINTE ROSE", "SOCOLUCE  PLIANE"]},
+    {"name": "Groupe SOFINO AUGUSTE NOUY & SODIAL", "clients": ["AUGUSTE NOUY", "SODEX DESMARAIS SAS", "SODIAL NOUY", "SUPER U SAINT- FRANCOIS"]},
+    {"name": "Groupe SOFINO DESMARAIS", "clients": ["SODEX DESMARAIS SAS"]},
+    {"name": "Groupe SOFINO SUPER U SAINT FRANCOIS", "clients": ["SUPER U SAINT- FRANCOIS"]},
+    {"name": "Groupe Super U Clairville", "categories": ["GR. SUPER U CLAIRVIL"]}
+  ]
+}
